@@ -1,0 +1,6 @@
+---
+- name: restart mtg
+  community.docker.docker_container:
+    name: mtg
+    state: started
+    restart: true

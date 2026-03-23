@@ -1,0 +1,14 @@
+---
+# VPS sizing
+vps_plan_vultr: "vc2-1c-1gb"
+vps_plan_linode: "g6-nanode-1"
+vps_image_vultr: "Debian 12 x64 (bookworm)"
+vps_image_linode: "linode/debian12"
+
+# Credentials output
+credentials_output_dir: "{{ playbook_dir }}/../credentials"
+
+# 1Password paths
+op_vault: "Infrastructure"
+op_vultr_item: "Vultr"
+op_linode_item: "Linode"

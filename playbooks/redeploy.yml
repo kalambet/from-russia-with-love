@@ -1,0 +1,35 @@
+---
+# Destroy and recreate a service with a new IP
+# Usage: ansible-playbook playbooks/redeploy.yml -e target_service=mtg
+# Optional: -e mtg_region_vultr=fra to change region
+
+- name: "Redeploy {{ target_service | default('service') }}"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    target_service: ""
+
+  pre_tasks:
+    - name: Validate target_service
+      ansible.builtin.assert:
+        that:
+          - target_service in ['mtg', 'outline']
+        fail_msg: "target_service must be 'mtg' or 'outline'"
+
+    - name: Confirm redeployment
+      ansible.builtin.debug:
+        msg: "Redeploying {{ target_service }} — will destroy existing node and create a new one"
+
+# Phase 1: Destroy existing
+- name: Destroy existing node
+  ansible.builtin.import_playbook: destroy.yml
+
+# Phase 2: Provision new
+- name: Provision new node
+  ansible.builtin.import_playbook: provision.yml
+
+# Phase 3: Deploy service
+- name: Deploy service to new node
+  ansible.builtin.import_playbook: deploy.yml

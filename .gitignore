@@ -1,0 +1,37 @@
+# Credentials and secrets
+credentials/
+*.vault
+*.vault.yml
+.env
+.env.*
+
+# Ansible
+*.retry
+ansible.log
+
+# Python
+*.pyc
+__pycache__/
+venv/
+.venv/
+*.egg-info/
+
+# Galaxy collections (installed locally)
+collections/
+
+# Vagrant
+.vagrant/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude
+.claude/

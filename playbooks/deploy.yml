@@ -1,0 +1,36 @@
+---
+# Deploy service to a provisioned VPS
+# Usage: ansible-playbook playbooks/deploy.yml -e target_service=mtg -e target_host=1.2.3.4
+# Or run after provision.yml in the same play
+- name: Deploy service
+  hosts: "{{ target_host | default(groups[target_service][0]) }}"
+  gather_facts: false
+  become: true
+
+  vars:
+    target_service: ""  # Required: mtg or outline
+
+  pre_tasks:
+    - name: Validate target_service
+      ansible.builtin.assert:
+        that:
+          - target_service in ['mtg', 'outline']
+        fail_msg: "target_service must be 'mtg' or 'outline'"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Set service port for firewall
+      ansible.builtin.set_fact:
+        service_port: "{{ mtg_port if target_service == 'mtg' else outline_access_port }}"
+
+    - name: Ensure credentials output directory exists
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+
+  roles:
+    - role: common
+    - role: "{{ target_service }}"

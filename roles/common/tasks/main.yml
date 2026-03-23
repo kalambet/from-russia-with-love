@@ -1,0 +1,90 @@
+---
+- name: Wait for SSH to become available
+  ansible.builtin.wait_for_connection:
+    timeout: 300
+
+- name: Gather facts
+  ansible.builtin.setup:
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: yes
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+      - ufw
+    state: present
+
+- name: Check if Docker is installed
+  ansible.builtin.command: docker --version
+  register: docker_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Download Docker install script
+  ansible.builtin.get_url:
+    url: https://get.docker.com
+    dest: /tmp/get-docker.sh
+    mode: '0755'
+  when: docker_check.rc != 0
+
+- name: Install Docker
+  ansible.builtin.command: /tmp/get-docker.sh
+  when: docker_check.rc != 0
+  changed_when: true
+
+- name: Ensure Docker service is running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Clean up Docker install script
+  ansible.builtin.file:
+    path: /tmp/get-docker.sh
+    state: absent
+
+- name: Set UFW default deny incoming
+  community.general.ufw:
+    direction: incoming
+    default: deny
+
+- name: Set UFW default allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: limit
+    port: "22"
+    proto: tcp
+
+- name: Allow service port through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ service_port }}"
+    proto: tcp
+  when: service_port is defined
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Disable password authentication for SSH
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    state: present
+  notify: restart sshd

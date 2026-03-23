@@ -1,0 +1,80 @@
+---
+# Destroy a VPS for a target service
+# Usage: ansible-playbook playbooks/destroy.yml -e target_service=mtg
+- name: Destroy VPS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    target_service: ""  # Required: mtg or outline
+
+  pre_tasks:
+    - name: Validate target_service
+      ansible.builtin.assert:
+        that:
+          - target_service in ['mtg', 'outline']
+        fail_msg: "target_service must be 'mtg' or 'outline'"
+
+    - name: Load service variables
+      ansible.builtin.include_vars:
+        file: "../inventory/group_vars/{{ target_service }}.yml"
+
+    - name: Load shared variables
+      ansible.builtin.include_vars:
+        file: "../inventory/group_vars/all.yml"
+
+    - name: Set provider fact
+      ansible.builtin.set_fact:
+        provider: "{{ mtg_provider if target_service == 'mtg' else outline_provider }}"
+        service_label: "{{ mtg_label | default('mtg-proxy') if target_service == 'mtg' else outline_label | default('outline-vpn') }}"
+
+  tasks:
+    # --- Vultr destroy ---
+    - name: Read Vultr API token from 1Password
+      ansible.builtin.command:
+        cmd: "op read op://{{ op_vault }}/{{ op_vultr_item }}/api-token"
+      register: vultr_token_result
+      no_log: true
+      when: provider == "vultr"
+      changed_when: false
+
+    - name: Destroy Vultr instance
+      vultr.cloud.instance:
+        api_key: "{{ vultr_token_result.stdout }}"
+        label: "{{ service_label }}"
+        state: absent
+      when: provider == "vultr"
+      no_log: true
+
+    # --- Linode destroy ---
+    - name: Read Linode API token from 1Password
+      ansible.builtin.command:
+        cmd: "op read op://{{ op_vault }}/{{ op_linode_item }}/api-token"
+      register: linode_token_result
+      no_log: true
+      when: provider == "linode"
+      changed_when: false
+
+    - name: Destroy Linode instance
+      linode.cloud.instance:
+        api_token: "{{ linode_token_result.stdout }}"
+        label: "{{ service_label }}"
+        state: absent
+      when: provider == "linode"
+      no_log: true
+
+    # --- Cleanup ---
+    - name: Remove old credentials file
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}/{{ target_service }}_credentials.txt"
+        state: absent
+
+    - name: Remove old host IP file
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}/{{ target_service }}_host_ip.txt"
+        state: absent
+
+    - name: Display destruction complete
+      ansible.builtin.debug:
+        msg: "Destroyed {{ service_label }} on {{ provider }}"

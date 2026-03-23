@@ -1,0 +1,8 @@
+---
+mtg_docker_image: "nineseconds/mtg:2"
+mtg_port: 443
+mtg_fronting_domain: "google.com"
+mtg_provider: "vultr"
+mtg_region_vultr: "ams"
+mtg_region_linode: "eu-west"
+mtg_label: "mtg-proxy"

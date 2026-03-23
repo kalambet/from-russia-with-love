@@ -1,0 +1,104 @@
+---
+- name: Create Outline install directory
+  ansible.builtin.file:
+    path: /opt/outline
+    state: directory
+    mode: '0700'
+
+- name: Download Outline install script
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/Jigsaw-Code/outline-server/master/src/server_manager/install_scripts/install_server.sh
+    dest: /opt/outline/install_server.sh
+    mode: '0755'
+
+- name: Check if Outline is already installed
+  ansible.builtin.command: docker ps --filter name=shadowbox --format '{{ '{{' }}.Names{{ '}}' }}'
+  register: outline_check
+  changed_when: false
+
+- name: Run Outline install script
+  ansible.builtin.command:
+    argv:
+      - bash
+      - /opt/outline/install_server.sh
+      - --hostname
+      - "{{ ansible_host }}"
+      - --keys-port
+      - "{{ outline_access_port }}"
+  register: outline_install_result
+  when: outline_check.stdout == ""
+  changed_when: true
+  no_log: true
+  environment:
+    SB_API_PORT: "{{ outline_api_port }}"
+
+- name: Extract Outline API URL from install output
+  ansible.builtin.set_fact:
+    outline_api_url: "{{ outline_install_result.stdout | regex_search('apiUrl:(https://[^\\s]+)') | regex_replace('apiUrl:', '') }}"
+    outline_cert_sha256: "{{ outline_install_result.stdout | regex_search('certSha256:([A-F0-9]+)') | regex_replace('certSha256:', '') }}"
+  when: outline_install_result is changed
+  no_log: true
+
+- name: Read Outline access config from persisted file
+  ansible.builtin.slurp:
+    src: /opt/outline/access.txt
+  register: outline_access_file
+  when: outline_install_result is not changed
+  ignore_errors: true
+
+# NOTE: The Outline management API port is exposed externally. Docker bypasses UFW,
+# so iptables rules would be needed to restrict it to localhost. The API requires
+# the cert SHA256 for authentication, which provides some protection. Consider
+# adding iptables DOCKER-USER chain rules in production to restrict API port access.
+
+- name: Wait for Outline API to be ready
+  ansible.builtin.wait_for:
+    port: "{{ outline_api_port }}"
+    timeout: 60
+
+- name: Create first access key via Outline API
+  ansible.builtin.uri:
+    url: "{{ outline_api_url }}/access-keys"
+    method: POST
+    validate_certs: false
+    status_code: [200, 201]
+  register: outline_key_result
+  when: outline_api_url is defined and outline_api_url != ""
+  no_log: true
+
+- name: Display Outline access key
+  ansible.builtin.debug:
+    msg: "Outline access key saved to credentials file"
+  when: outline_key_result is defined and outline_key_result is not skipped
+
+- name: Save Outline credentials to local file
+  ansible.builtin.copy:
+    content: |
+      # Outline VPN Credentials
+      # Generated: {{ ansible_date_time.iso8601 }}
+      # Server: {{ ansible_host }}
+      # API Port: {{ outline_api_port }}
+      # Access Port: {{ outline_access_port }}
+
+      Access Key (use in Outline client app):
+      {{ outline_key_result.json.accessUrl | default('N/A - check server manually') }}
+
+      Management API URL:
+      {{ outline_api_url | default('N/A') }}
+
+      Cert SHA256:
+      {{ outline_cert_sha256 | default('N/A') }}
+    dest: "{{ credentials_output_dir }}/outline_credentials.txt"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  when: outline_key_result is defined and outline_key_result is not skipped
+
+- name: Save Outline access config for future reference
+  ansible.builtin.copy:
+    content: |
+      apiUrl:{{ outline_api_url | default('') }}
+      certSha256:{{ outline_cert_sha256 | default('') }}
+    dest: /opt/outline/access.txt
+    mode: '0600'
+  when: outline_api_url is defined and outline_api_url != ""

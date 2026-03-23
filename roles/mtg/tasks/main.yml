@@ -1,0 +1,72 @@
+---
+- name: Generate mtg secret
+  ansible.builtin.command:
+    cmd: "docker run --rm {{ mtg_docker_image }} generate-secret {{ mtg_fronting_domain }}"
+  register: mtg_secret_result
+  changed_when: true
+  no_log: true
+
+- name: Set mtg secret fact
+  ansible.builtin.set_fact:
+    mtg_secret: "{{ mtg_secret_result.stdout }}"
+  no_log: true
+
+- name: Create mtg config directory
+  ansible.builtin.file:
+    path: /etc/mtg
+    state: directory
+    mode: '0700'
+
+- name: Template mtg config
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: /etc/mtg/config.toml
+    mode: '0600'
+  notify: restart mtg
+
+- name: Stop existing mtg container if running
+  community.docker.docker_container:
+    name: mtg
+    state: absent
+  ignore_errors: true
+
+- name: Run mtg container
+  community.docker.docker_container:
+    name: mtg
+    image: "{{ mtg_docker_image }}"
+    state: started
+    restart_policy: always
+    ports:
+      - "{{ mtg_port }}:3128"
+    volumes:
+      - "/etc/mtg/config.toml:/config.toml:ro"
+
+- name: Wait for mtg to start
+  ansible.builtin.wait_for:
+    port: "{{ mtg_port }}"
+    timeout: 30
+
+- name: Generate mtg proxy link
+  ansible.builtin.command:
+    cmd: "docker exec mtg /mtg access /config.toml"
+  register: mtg_link_result
+  changed_when: false
+
+- name: Display mtg proxy link
+  ansible.builtin.debug:
+    msg: "MTProxy link saved to credentials file"
+
+- name: Save mtg credentials to local file
+  ansible.builtin.copy:
+    content: |
+      # MTProxy (mtg) Credentials
+      # Generated: {{ ansible_date_time.iso8601 }}
+      # Server: {{ ansible_host }}
+      # Port: {{ mtg_port }}
+
+      Proxy link (share this with Telegram users):
+      {{ mtg_link_result.stdout }}
+    dest: "{{ credentials_output_dir }}/mtg_credentials.txt"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
