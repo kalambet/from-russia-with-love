@@ -1,0 +1,49 @@
+---
+# Provider role: Vultr — provision a VPS
+# Contract:
+#   Expects: op_vault, provider_op_item, provider_plan, provider_image,
+#            deploy_region, service_label, target_service, ssh_public_key_content
+#   Sets fact: new_host_ip
+
+- name: Read Vultr API token from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/api-token"
+  register: provider_api_token
+  no_log: false
+  changed_when: false
+
+- name: Ensure SSH key exists on Vultr
+  vultr.cloud.ssh_key:
+    api_key: "{{ provider_api_token.stdout }}"
+    name: "ansible-deploy"
+    ssh_key: "{{ ssh_public_key_content }}"
+  no_log: false
+
+- name: Create Vultr instance
+  vultr.cloud.instance:
+    api_key: "{{ provider_api_token.stdout }}"
+    label: "{{ service_label }}"
+    hostname: "{{ service_label }}"
+    region: "{{ deploy_region }}"
+    plan: "{{ provider_plan }}"
+    os: "{{ provider_image }}"
+    ssh_keys:
+      - "ansible-deploy"
+    tags:
+      - "{{ target_service }}"
+    enable_ipv6: true
+    state: present
+  register: vultr_instance
+  no_log: false
+
+- name: Wait for Vultr instance to be active
+  ansible.builtin.pause:
+    seconds: 30
+  when: vultr_instance is changed
+
+- name: Set new host IP
+  ansible.builtin.set_fact:
+    new_host_ip: "{{ vultr_instance.vultr_instance.main_ip }}"

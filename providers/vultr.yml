@@ -1,0 +1,6 @@
+---
+provider_name: "vultr"
+provider_plan: "vc2-1c-1gb"
+provider_image: "Debian 12 x64 (bookworm)"
+provider_op_item: "Vultr"
+provider_region: "ams"

@@ -4,12 +4,12 @@
     cmd: "docker run --rm {{ mtg_docker_image }} generate-secret {{ mtg_fronting_domain }}"
   register: mtg_secret_result
   changed_when: true
-  no_log: true
+  no_log: false
 
 - name: Set mtg secret fact
   ansible.builtin.set_fact:
     mtg_secret: "{{ mtg_secret_result.stdout }}"
-  no_log: true
+  no_log: false
 
 - name: Create mtg config directory
   ansible.builtin.file:
@@ -36,8 +36,7 @@
     image: "{{ mtg_docker_image }}"
     state: started
     restart_policy: always
-    ports:
-      - "{{ mtg_port }}:3128"
+    network_mode: host
     volumes:
       - "/etc/mtg/config.toml:/config.toml:ro"
 
@@ -60,7 +59,7 @@
   ansible.builtin.copy:
     content: |
       # MTProxy (mtg) Credentials
-      # Generated: {{ ansible_date_time.iso8601 }}
+      # Generated: {{ ansible_facts['date_time']['iso8601'] }}
       # Server: {{ ansible_host }}
       # Port: {{ mtg_port }}
 

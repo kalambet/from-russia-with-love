@@ -1,6 +1,7 @@
 ---
-# Provision a VPS for a target service
-# Usage: ansible-playbook playbooks/provision.yml -e target_service=mtg
+# Provision a VPS for a target service on a given provider
+# Usage: ansible-playbook playbooks/provision.yml -e target_service=mtg -e provider=vultr
+# Optional: -e region=fra (override provider's default region)
 - name: Provision VPS
   hosts: localhost
   connection: local
@@ -8,13 +9,21 @@
 
   vars:
     target_service: ""  # Required: mtg or outline
+    provider: ""        # Required: vultr or linode
+    region: ""          # Optional: override provider default region
 
   pre_tasks:
     - name: Validate target_service
       ansible.builtin.assert:
         that:
           - target_service in ['mtg', 'outline']
-        fail_msg: "target_service must be 'mtg' or 'outline'. Usage: -e target_service=mtg"
+        fail_msg: "target_service must be 'mtg' or 'outline'"
+
+    - name: Validate provider
+      ansible.builtin.assert:
+        that:
+          - provider in ['vultr', 'linode']
+        fail_msg: "provider must be 'vultr' or 'linode'"
 
     - name: Load service variables
       ansible.builtin.include_vars:
@@ -24,126 +33,56 @@
       ansible.builtin.include_vars:
         file: "../inventory/group_vars/all.yml"
 
-    - name: Set provider fact
+    - name: Load provider variables
+      ansible.builtin.include_vars:
+        file: "../providers/{{ provider }}.yml"
+
+    - name: Set deployment facts
       ansible.builtin.set_fact:
-        provider: "{{ mtg_provider if target_service == 'mtg' else outline_provider }}"
+        deploy_region: "{{ region if region != '' else provider_region }}"
         service_label: "{{ mtg_label | default('mtg-proxy') if target_service == 'mtg' else outline_label | default('outline-vpn') }}"
-        region: >-
-          {% if target_service == 'mtg' %}{{ mtg_region_vultr if (mtg_provider | default('vultr')) == 'vultr' else mtg_region_linode }}{% else %}{{ outline_region_vultr if (outline_provider | default('linode')) == 'vultr' else outline_region_linode }}{% endif %}
 
-    - name: Read SSH public key from agent
-      ansible.builtin.command:
-        cmd: ssh-add -L
-      register: ssh_agent_keys
-      changed_when: false
-      failed_when:
-        - ssh_agent_keys.rc != 0
-        - "'The agent has no identities' in ssh_agent_keys.stderr"
-
-    - name: Verify SSH agent has keys loaded
+    - name: Validate SSH key 1Password path is configured
       ansible.builtin.assert:
         that:
-          - ssh_agent_keys.stdout_lines | length > 0
-        fail_msg: "No keys loaded in SSH agent. Run: ssh-add"
+          - op_ssh_key_item != ""
+        fail_msg: "op_ssh_key_item must be set in inventory/group_vars/all.yml (e.g. 'op://Infrastructure/SSH Key/public key')"
 
-    - name: Set SSH public key (first key from agent)
+    - name: Read SSH public key from 1Password
+      ansible.builtin.command:
+        argv:
+          - op
+          - read
+          - "{{ op_ssh_key_item }}"
+      register: ssh_key_result
+      no_log: false
+      changed_when: false
+
+    - name: Set SSH public key
       ansible.builtin.set_fact:
-        ssh_public_key_content: "{{ ssh_agent_keys.stdout_lines[0] }}"
+        ssh_public_key_content: "{{ ssh_key_result.stdout | trim }}"
+      no_log: false
 
   tasks:
-    # --- Vultr provisioning ---
-    - name: Read Vultr API token from 1Password
-      ansible.builtin.command:
-        cmd: "op read op://{{ op_vault }}/{{ op_vultr_item }}/api-token"
-      register: vultr_token_result
-      no_log: true
-      when: provider == "vultr"
-      changed_when: false
+    - name: "Provision on {{ provider }}"
+      ansible.builtin.include_role:
+        name: "provider_{{ provider }}"
 
-    - name: Ensure SSH key exists on Vultr
-      vultr.cloud.ssh_key:
-        api_key: "{{ vultr_token_result.stdout }}"
-        name: "ansible-deploy"
-        ssh_key: "{{ ssh_public_key_content }}"
-      when: provider == "vultr"
-      register: vultr_ssh_key
-      no_log: true
+    - name: Display provisioned host
+      ansible.builtin.debug:
+        msg: "Provisioned {{ target_service }} on {{ provider }} ({{ deploy_region }}) at {{ new_host_ip }}"
 
-    - name: Create Vultr instance
-      vultr.cloud.instance:
-        api_key: "{{ vultr_token_result.stdout }}"
-        label: "{{ service_label }}"
-        hostname: "{{ service_label }}"
-        region: "{{ region }}"
-        plan: "{{ vps_plan_vultr }}"
-        os: "{{ vps_image_vultr }}"
-        ssh_keys:
-          - "ansible-deploy"
-        enable_ipv6: true
-        state: present
-      register: vultr_instance
-      when: provider == "vultr"
-      no_log: true
+    - name: Save provider for destroy/redeploy
+      ansible.builtin.copy:
+        content: "{{ provider }}"
+        dest: "{{ credentials_output_dir }}/{{ target_service }}_provider.txt"
+        mode: '0600'
+      delegate_to: localhost
 
-    - name: Wait for Vultr instance to be active
-      ansible.builtin.pause:
-        seconds: 30
-      when: provider == "vultr" and vultr_instance is changed
-
-    - name: Set Vultr host facts
-      ansible.builtin.set_fact:
-        new_host_ip: "{{ vultr_instance.vultr_instance.main_ip }}"
-      when: provider == "vultr"
-
-    # --- Linode provisioning ---
-    - name: Read Linode API token from 1Password
-      ansible.builtin.command:
-        cmd: "op read op://{{ op_vault }}/{{ op_linode_item }}/api-token"
-      register: linode_token_result
-      no_log: true
-      when: provider == "linode"
-      changed_when: false
-
-    - name: Create Linode instance
-      linode.cloud.instance:
-        api_token: "{{ linode_token_result.stdout }}"
-        label: "{{ service_label }}"
-        type: "{{ vps_plan_linode }}"
-        region: "{{ region }}"
-        image: "{{ vps_image_linode }}"
-        authorized_keys:
-          - "{{ ssh_public_key_content }}"
-        state: present
-      register: linode_instance
-      when: provider == "linode"
-      no_log: true
-
-    - name: Wait for Linode instance to be running
-      ansible.builtin.pause:
-        seconds: 30
-      when: provider == "linode" and linode_instance is changed
-
-    - name: Set Linode host facts
-      ansible.builtin.set_fact:
-        new_host_ip: "{{ linode_instance.instance.ipv4[0] }}"
-      when: provider == "linode"
-
-    # --- Add to inventory ---
     - name: Add new host to in-memory inventory
       ansible.builtin.add_host:
         name: "{{ new_host_ip }}"
         groups:
           - "{{ target_service }}"
         ansible_user: root
-        service_port: "{{ mtg_port if target_service == 'mtg' else outline_access_port }}"
 
-    - name: Display provisioned host
-      ansible.builtin.debug:
-        msg: "Provisioned {{ target_service }} on {{ provider }} at {{ new_host_ip }}"
-
-    - name: Save host IP for other playbooks
-      ansible.builtin.copy:
-        content: "{{ new_host_ip }}"
-        dest: "{{ credentials_output_dir }}/{{ target_service }}_host_ip.txt"
-        mode: '0600'
-      delegate_to: localhost

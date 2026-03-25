@@ -1,0 +1,10 @@
+---
+plugin: linode.cloud.instance
+# Auth via LINODE_API_TOKEN env var (set by justfile via op read)
+keyed_groups:
+  - key: tags
+    prefix: ""
+    separator: ""
+compose:
+  ansible_host: ipv4[0] | default(label)
+  ansible_user: "'root'"

@@ -1,6 +1,7 @@
 ---
 # Destroy a VPS for a target service
-# Usage: ansible-playbook playbooks/destroy.yml -e target_service=mtg
+# Usage: ansible-playbook playbooks/destroy.yml -e target_service=mtg -e provider=vultr
+# If provider is omitted, reads from credentials/<service>_provider.txt (saved during provision)
 - name: Destroy VPS
   hosts: localhost
   connection: local
@@ -8,6 +9,7 @@
 
   vars:
     target_service: ""  # Required: mtg or outline
+    provider: ""        # Optional: auto-detected from saved state
 
   pre_tasks:
     - name: Validate target_service
@@ -24,55 +26,40 @@
       ansible.builtin.include_vars:
         file: "../inventory/group_vars/all.yml"
 
-    - name: Set provider fact
+    - name: Auto-detect provider from saved state
       ansible.builtin.set_fact:
-        provider: "{{ mtg_provider if target_service == 'mtg' else outline_provider }}"
+        provider: "{{ lookup('file', credentials_output_dir + '/' + target_service + '_provider.txt') }}"
+      when: provider == ""
+      ignore_errors: true
+
+    - name: Validate provider
+      ansible.builtin.assert:
+        that:
+          - provider in ['vultr', 'linode']
+        fail_msg: "provider must be 'vultr' or 'linode'. Pass -e provider=vultr or ensure credentials/{{ target_service }}_provider.txt exists"
+
+    - name: Load provider variables
+      ansible.builtin.include_vars:
+        file: "../providers/{{ provider }}.yml"
+
+    - name: Set service label
+      ansible.builtin.set_fact:
         service_label: "{{ mtg_label | default('mtg-proxy') if target_service == 'mtg' else outline_label | default('outline-vpn') }}"
 
   tasks:
-    # --- Vultr destroy ---
-    - name: Read Vultr API token from 1Password
-      ansible.builtin.command:
-        cmd: "op read op://{{ op_vault }}/{{ op_vultr_item }}/api-token"
-      register: vultr_token_result
-      no_log: true
-      when: provider == "vultr"
-      changed_when: false
+    - name: "Destroy on {{ provider }}"
+      ansible.builtin.include_role:
+        name: "provider_{{ provider }}"
+        tasks_from: destroy.yml
 
-    - name: Destroy Vultr instance
-      vultr.cloud.instance:
-        api_key: "{{ vultr_token_result.stdout }}"
-        label: "{{ service_label }}"
-        state: absent
-      when: provider == "vultr"
-      no_log: true
-
-    # --- Linode destroy ---
-    - name: Read Linode API token from 1Password
-      ansible.builtin.command:
-        cmd: "op read op://{{ op_vault }}/{{ op_linode_item }}/api-token"
-      register: linode_token_result
-      no_log: true
-      when: provider == "linode"
-      changed_when: false
-
-    - name: Destroy Linode instance
-      linode.cloud.instance:
-        api_token: "{{ linode_token_result.stdout }}"
-        label: "{{ service_label }}"
-        state: absent
-      when: provider == "linode"
-      no_log: true
-
-    # --- Cleanup ---
     - name: Remove old credentials file
       ansible.builtin.file:
         path: "{{ credentials_output_dir }}/{{ target_service }}_credentials.txt"
         state: absent
 
-    - name: Remove old host IP file
+    - name: Remove old provider file
       ansible.builtin.file:
-        path: "{{ credentials_output_dir }}/{{ target_service }}_host_ip.txt"
+        path: "{{ credentials_output_dir }}/{{ target_service }}_provider.txt"
         state: absent
 
     - name: Display destruction complete

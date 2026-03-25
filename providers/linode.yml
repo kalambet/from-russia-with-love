@@ -1,0 +1,6 @@
+---
+provider_name: "linode"
+provider_plan: "g6-nanode-1"
+provider_image: "linode/debian12"
+provider_op_item: "Linode"
+provider_region: "eu-west"

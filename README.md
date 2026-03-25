@@ -4,12 +4,21 @@ Ansible infrastructure for deploying anti-censorship proxy nodes — **mtg** (MT
 
 ## Architecture
 
-Two separate VPS nodes, each running a single service in Docker:
+```
+┌─────────────────┐     ┌─────────────────┐
+│   Services      │     │   Providers     │
+│  (what to run)  │     │  (where to run) │
+├─────────────────┤     ├─────────────────┤
+│  mtg            │ ──▶ │  vultr          │
+│  outline        │ ──▶ │  linode         │
+└─────────────────┘     └─────────────────┘
+```
 
-- **mtg** — MTProxy for Telegram (default: Vultr, Amsterdam)
-- **Outline VPN** — Shadowsocks-based VPN via Jigsaw's Outline (default: Linode, EU West)
+**Services** define *what* to run — Docker image, ports, application config. They know nothing about infrastructure.
 
-Services are split across providers to reduce blast radius — blocking one IP only kills one service. Service-to-provider mapping is configurable; either service can run on either provider. Nodes are ephemeral: destroy and recreate for a new IP. Credentials are regenerated on every deploy.
+**Providers** define *where* and *how* — API credentials, region, instance plan, OS image. They are the single source of truth for all infra details.
+
+Any service can deploy on any provider. Nodes are ephemeral: destroy and recreate for a new IP. Credentials are regenerated on every deploy.
 
 ## Prerequisites
 
@@ -26,11 +35,11 @@ Services are split across providers to reduce blast radius — blocking one IP o
 ## Quick Start
 
 ```bash
-just setup          # Install Galaxy collections
-just up mtg         # Provision + deploy MTProxy
-just up outline     # Provision + deploy Outline VPN
-just show mtg       # Display proxy link to share
-just show outline   # Display access key to share
+just setup                # Install Galaxy collections
+just up mtg vultr         # Provision + deploy MTProxy on Vultr
+just up outline linode    # Provision + deploy Outline VPN on Linode
+just show mtg             # Display proxy link to share
+just show outline         # Display access key to share
 ```
 
 ## Commands Reference
@@ -39,112 +48,137 @@ just show outline   # Display access key to share
 |---------|-------------|---------|
 | `just` | List all available recipes | `just` |
 | `just setup` | Install Ansible Galaxy collections | `just setup` |
-| `just provision <service> [region]` | Provision a new VPS | `just provision mtg fra` |
+| `just provision <service> <provider> [region]` | Provision a new VPS | `just provision mtg vultr fra` |
 | `just deploy <service> [host]` | Deploy service to a provisioned VPS | `just deploy mtg 1.2.3.4` |
-| `just up <service> [region]` | Provision + deploy in one step | `just up outline eu-west` |
-| `just destroy <service>` | Destroy a VPS | `just destroy mtg` |
-| `just redeploy <service> [region]` | Destroy + provision + deploy (new IP) | `just redeploy mtg fra` |
+| `just up <service> <provider> [region]` | Provision + deploy in one step | `just up outline linode` |
+| `just destroy <service> [provider]` | Destroy a VPS (provider auto-detected if omitted) | `just destroy mtg` |
+| `just redeploy <service> <provider> [region]` | Destroy + provision + deploy (new IP) | `just redeploy mtg vultr fra` |
 | `just creds <service> [host]` | Fetch credentials from a running node | `just creds outline 1.2.3.4` |
 | `just show <service>` | Show saved credentials | `just show mtg` |
 | `just ip <service>` | Show saved host IP | `just ip outline` |
-| `just up-all` | Deploy everything (mtg + outline) | `just up-all` |
+| `just up-all [mtg_provider] [outline_provider]` | Deploy everything | `just up-all vultr linode` |
 | `just destroy-all` | Destroy everything | `just destroy-all` |
-| `just redeploy-all` | Redeploy everything with fresh IPs | `just redeploy-all` |
+| `just redeploy-all [mtg_provider] [outline_provider]` | Redeploy everything with fresh IPs | `just redeploy-all` |
 | `just check` | Syntax check all playbooks | `just check` |
 | `just dry-run <service> <host>` | Dry run a deploy (check mode) | `just dry-run mtg 1.2.3.4` |
 
-Service values: `mtg` or `outline`.
+Service values: `mtg` or `outline`. Provider values: `vultr` or `linode`.
 
 ## Redeployment (When Blocked)
 
 When a node gets blocked by RKN, redeploy to get a new IP:
 
 ```bash
-just redeploy mtg              # Same region, new IP
-just redeploy mtg fra          # Switch to Frankfurt
-just redeploy outline eu-west  # Switch Outline region
+just redeploy mtg vultr              # Same provider + region, new IP
+just redeploy mtg vultr fra          # Switch to Frankfurt
+just redeploy mtg linode             # Switch provider entirely
+just redeploy outline linode eu-west # Switch Outline region
 ```
 
-The redeploy workflow: destroy existing node, provision a new one, deploy the service, save fresh credentials. Credentials are regenerated automatically (new mtg secret, new Outline access key) and saved to the `credentials/` directory. Share the new link/key with family.
+The redeploy workflow: destroy existing node → provision a new one → deploy the service → save fresh credentials. Credentials are regenerated automatically (new mtg secret, new Outline access key) and saved to the `credentials/` directory. Share the new link/key with family.
 
 ## Configuration
 
-### Key Variables
+### Services (`inventory/group_vars/`)
 
-**`inventory/group_vars/mtg.yml`**:
+Service configs are provider-agnostic — they define *what* to run, not *where*.
+
+**`mtg.yml`**:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `mtg_provider` | `vultr` | Cloud provider (`vultr` or `linode`) |
-| `mtg_region_vultr` | `ams` | Vultr region code |
-| `mtg_region_linode` | `eu-west` | Linode region code |
 | `mtg_port` | `443` | External port (443 mimics HTTPS) |
 | `mtg_fronting_domain` | `google.com` | Domain fronting target for obfuscation |
+| `mtg_docker_image` | `nineseconds/mtg:2` | Docker image |
+| `mtg_label` | `mtg-proxy` | VPS instance label |
 
-**`inventory/group_vars/outline.yml`**:
+**`outline.yml`**:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `outline_provider` | `linode` | Cloud provider (`vultr` or `linode`) |
-| `outline_region_vultr` | `ams` | Vultr region code |
-| `outline_region_linode` | `eu-west` | Linode region code |
 | `outline_api_port` | `60000` | Outline management API port |
 | `outline_access_port` | `40000` | Outline client access port |
+| `outline_label` | `outline-vpn` | VPS instance label |
 
-**`inventory/group_vars/all.yml`**:
+### Providers (`providers/`)
+
+Provider configs are the single source of truth for all infrastructure details.
+
+**`vultr.yml`**:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `vps_plan_vultr` | `vc2-1c-1gb` | Vultr instance plan |
-| `vps_plan_linode` | `g6-nanode-1` | Linode instance plan |
-| _(SSH keys)_ | _(from agent)_ | Public key read from SSH agent via `ssh-add -L` |
-| `op_vault` | `Infrastructure` | 1Password vault name |
-| `op_vultr_item` | `Vultr` | 1Password item for Vultr API token |
-| `op_linode_item` | `Linode` | 1Password item for Linode API token |
+| `provider_plan` | `vc2-1c-1gb` | Instance plan (1 CPU, 1GB RAM) |
+| `provider_image` | `Debian 12 x64 (bookworm)` | OS image |
+| `provider_region` | `ams` | Default region (Amsterdam) |
+| `provider_op_item` | `Vultr` | 1Password item name for API token |
+
+**`linode.yml`**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `provider_plan` | `g6-nanode-1` | Instance plan (1 CPU, 1GB RAM) |
+| `provider_image` | `linode/debian12` | OS image |
+| `provider_region` | `eu-west` | Default region (EU West) |
+| `provider_op_item` | `Linode` | 1Password item name for API token |
 
 ### Switching Providers
 
-To move mtg from Vultr to Linode, edit `inventory/group_vars/mtg.yml`:
+Provider is chosen at deploy time — just pass a different provider:
 
-```yaml
-mtg_provider: "linode"
-mtg_region_linode: "eu-west"
+```bash
+# Move mtg from Vultr to Linode
+just redeploy mtg linode
+
+# Move Outline from Linode to Vultr
+just redeploy outline vultr fra
 ```
 
-Then redeploy: `just redeploy mtg`
+No config files need editing to switch providers.
 
 ## Project Structure
 
 ```
 from-russia-with-love/
-├── ansible.cfg                        # Ansible config (inventory, SSH, pipelining)
-├── justfile                           # Command runner recipes
-├── requirements.yml                   # Galaxy collections (vultr, linode, docker, general)
+├── ansible.cfg                           # Ansible config (inventory, SSH, pipelining)
+├── justfile                              # Command runner recipes
+├── requirements.yml                      # Galaxy collections (vultr, linode, docker, general)
+├── providers/
+│   ├── vultr.yml                         # Vultr infra: plan, image, region, 1Password path
+│   └── linode.yml                        # Linode infra: plan, image, region, 1Password path
 ├── inventory/
-│   ├── hosts.yml                      # Static inventory (groups only, hosts added dynamically)
+│   ├── hosts.yml                         # Static inventory (groups only, hosts added dynamically)
 │   └── group_vars/
-│       ├── all.yml                    # Shared variables (VPS plans, SSH, 1Password paths)
-│       ├── mtg.yml                    # mtg service config (provider, region, port, fronting)
-│       └── outline.yml                # Outline service config (provider, region, ports)
+│       ├── all.yml                       # Shared: credentials dir, 1Password vault
+│       ├── mtg.yml                       # mtg service config (port, fronting, image, label)
+│       └── outline.yml                   # Outline service config (ports, label)
 ├── roles/
+│   ├── provider_vultr/
+│   │   └── tasks/
+│   │       ├── main.yml                  # Provision: API token → SSH key → create instance
+│   │       └── destroy.yml               # Destroy: API token → delete instance
+│   ├── provider_linode/
+│   │   └── tasks/
+│   │       ├── main.yml                  # Provision: API token → create instance
+│   │       └── destroy.yml               # Destroy: API token → delete instance
 │   ├── common/
-│   │   ├── tasks/main.yml             # Base setup: apt, Docker, UFW, SSH hardening
-│   │   └── handlers/main.yml          # Handler: restart sshd
+│   │   ├── tasks/main.yml               # Base setup: apt, Docker, UFW, SSH hardening
+│   │   └── handlers/main.yml            # Handler: restart sshd
 │   ├── mtg/
-│   │   ├── tasks/main.yml             # Generate secret, run container, save proxy link
-│   │   ├── templates/config.toml.j2   # mtg config template
-│   │   └── handlers/main.yml          # Handler: restart mtg container
+│   │   ├── tasks/main.yml               # Generate secret, run container, save proxy link
+│   │   ├── templates/config.toml.j2     # mtg config template
+│   │   └── handlers/main.yml            # Handler: restart mtg container
 │   └── outline/
-│       └── tasks/main.yml             # Install Outline, create access key, save credentials
+│       └── tasks/main.yml               # Install Outline, create access key, save credentials
 ├── playbooks/
-│   ├── provision.yml                  # Create VPS on Vultr or Linode
-│   ├── deploy.yml                     # Run common + service role on provisioned node
-│   ├── destroy.yml                    # Tear down VPS and clean up credentials
-│   ├── redeploy.yml                   # Destroy + provision + deploy (single command)
-│   └── credentials.yml                # Fetch credentials from running nodes
+│   ├── provision.yml                     # Create VPS via provider role
+│   ├── deploy.yml                        # Run common + service role on provisioned node
+│   ├── destroy.yml                       # Tear down VPS via provider role
+│   ├── redeploy.yml                      # Destroy + provision + deploy (single command)
+│   └── credentials.yml                   # Fetch credentials from running nodes
 ├── specs/
-│   └── anti-censorship-infra.md       # Design spec
-├── credentials/                       # .gitignored — local credential output
+│   └── anti-censorship-infra.md          # Design spec
+├── credentials/                          # .gitignored — local credential output
 └── .gitignore
 ```
 
@@ -165,11 +199,22 @@ from-russia-with-love/
 - **Outline install script** is fetched from upstream without checksum pinning — a compromised upstream could affect new deploys.
 - **No automated monitoring** — verification is manual, via family feedback ("does it work?").
 
+## Adding a New Provider
+
+1. Create `providers/<name>.yml` with `provider_name`, `provider_plan`, `provider_image`, `provider_op_item`, `provider_region`
+2. Create `roles/provider_<name>/tasks/main.yml` — provision logic, must set `new_host_ip` fact
+3. Create `roles/provider_<name>/tasks/destroy.yml` — teardown logic
+4. Add the Galaxy collection to `requirements.yml`
+5. Create the 1Password item with an `api-token` field
+
+Then use it: `just up mtg <name>`
+
 ## Future Plans
 
 - Telegram bot for triggering redeployment (family members request new IP via bot)
 - Automated region rotation on block detection
 - Provider firewall rules via API (defense in depth beyond UFW)
+- Additional providers (Hetzner, DigitalOcean)
 
 ## License
 

@@ -1,0 +1,31 @@
+---
+# Provider role: Vultr — destroy a VPS
+# Contract:
+#   Expects: op_vault, provider_op_item, service_label
+
+- name: Read Vultr API token from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/api-token"
+  register: provider_api_token
+  no_log: false
+  changed_when: false
+
+- name: Look up existing Vultr instance
+  vultr.cloud.instance_info:
+    api_key: "{{ provider_api_token.stdout }}"
+    label: "{{ service_label }}"
+  register: vultr_existing
+  no_log: false
+  ignore_errors: true
+
+- name: Destroy Vultr instance
+  vultr.cloud.instance:
+    api_key: "{{ provider_api_token.stdout }}"
+    label: "{{ service_label }}"
+    region: "{{ vultr_existing.vultr_instance.region | default('ams') }}"
+    state: absent
+  no_log: false
+  when: vultr_existing is succeeded

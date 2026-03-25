@@ -1,0 +1,40 @@
+---
+# Provider role: Linode — provision a VPS
+# Contract:
+#   Expects: op_vault, provider_op_item, provider_plan, provider_image,
+#            deploy_region, service_label, target_service, ssh_public_key_content
+#   Sets fact: new_host_ip
+
+- name: Read Linode API token from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/api-token"
+  register: provider_api_token
+  no_log: false
+  changed_when: false
+
+- name: Create Linode instance
+  linode.cloud.instance:
+    api_token: "{{ provider_api_token.stdout }}"
+    label: "{{ service_label }}"
+    type: "{{ provider_plan }}"
+    region: "{{ deploy_region }}"
+    image: "{{ provider_image }}"
+    authorized_keys:
+      - "{{ ssh_public_key_content }}"
+    tags:
+      - "{{ target_service }}"
+    state: present
+  register: linode_instance
+  no_log: false
+
+- name: Wait for Linode instance to be running
+  ansible.builtin.pause:
+    seconds: 30
+  when: linode_instance is changed
+
+- name: Set new host IP
+  ansible.builtin.set_fact:
+    new_host_ip: "{{ linode_instance.instance.ipv4[0] }}"

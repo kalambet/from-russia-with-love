@@ -1,9 +1,9 @@
 ---
 # Deploy service to a provisioned VPS
-# Usage: ansible-playbook playbooks/deploy.yml -e target_service=mtg -e target_host=1.2.3.4
-# Or run after provision.yml in the same play
-- name: Deploy service
-  hosts: "{{ target_host | default(groups[target_service][0]) }}"
+# Hosts are discovered via dynamic inventory (tagged with service name)
+# Usage: ansible-playbook playbooks/deploy.yml -e target_service=mtg
+- name: "Deploy {{ target_service | default('service') }}"
+  hosts: "{{ target_service }}"
   gather_facts: false
   become: true
 
@@ -16,8 +16,6 @@
         that:
           - target_service in ['mtg', 'outline']
         fail_msg: "target_service must be 'mtg' or 'outline'"
-      delegate_to: localhost
-      run_once: true
 
     - name: Set service port for firewall
       ansible.builtin.set_fact:
@@ -30,6 +28,7 @@
         mode: '0700'
       delegate_to: localhost
       become: false
+      run_once: true
 
   roles:
     - role: common

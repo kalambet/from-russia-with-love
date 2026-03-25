@@ -3,7 +3,7 @@ collections:
   - name: vultr.cloud
     version: ">=1.12.0"
   - name: linode.cloud
-    version: ">=2.0.0"
+    version: ">=0.44.0"
   - name: community.docker
     version: ">=3.0.0"
   - name: community.general

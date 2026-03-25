@@ -28,7 +28,7 @@
   register: outline_install_result
   when: outline_check.stdout == ""
   changed_when: true
-  no_log: true
+  no_log: false
   environment:
     SB_API_PORT: "{{ outline_api_port }}"
 
@@ -37,7 +37,7 @@
     outline_api_url: "{{ outline_install_result.stdout | regex_search('apiUrl:(https://[^\\s]+)') | regex_replace('apiUrl:', '') }}"
     outline_cert_sha256: "{{ outline_install_result.stdout | regex_search('certSha256:([A-F0-9]+)') | regex_replace('certSha256:', '') }}"
   when: outline_install_result is changed
-  no_log: true
+  no_log: false
 
 - name: Read Outline access config from persisted file
   ansible.builtin.slurp:
@@ -64,7 +64,7 @@
     status_code: [200, 201]
   register: outline_key_result
   when: outline_api_url is defined and outline_api_url != ""
-  no_log: true
+  no_log: false
 
 - name: Display Outline access key
   ansible.builtin.debug:

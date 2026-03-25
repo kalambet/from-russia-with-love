@@ -1,0 +1,9 @@
+---
+plugin: vultr.cloud.vultr
+# Auth via VULTR_API_KEY env var (set by justfile via op read)
+groups:
+  mtg: "'mtg' in vultr_tags"
+  outline: "'outline' in vultr_tags"
+compose:
+  ansible_host: vultr_main_ip
+  ansible_user: "'root'"

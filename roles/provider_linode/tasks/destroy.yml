@@ -1,0 +1,21 @@
+---
+# Provider role: Linode — destroy a VPS
+# Contract:
+#   Expects: op_vault, provider_op_item, service_label
+
+- name: Read Linode API token from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/api-token"
+  register: provider_api_token
+  no_log: false
+  changed_when: false
+
+- name: Destroy Linode instance
+  linode.cloud.instance:
+    api_token: "{{ provider_api_token.stdout }}"
+    label: "{{ service_label }}"
+    state: absent
+  no_log: false
