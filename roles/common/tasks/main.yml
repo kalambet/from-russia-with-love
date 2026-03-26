@@ -70,12 +70,13 @@
     port: "22"
     proto: tcp
 
-- name: Allow service port through UFW
+- name: Allow service ports through UFW
   community.general.ufw:
     rule: allow
-    port: "{{ service_port }}"
+    port: "{{ item }}"
     proto: tcp
-  when: service_port is defined
+  loop: "{{ service_ports }}"
+  when: service_ports is defined
 
 - name: Enable UFW
   community.general.ufw:

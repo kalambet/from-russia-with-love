@@ -8,6 +8,7 @@
   gather_facts: false
 
   vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     target_service: ""  # Required: mtg or outline
     provider: ""        # Required: vultr or linode
     region: ""          # Optional: override provider default region
@@ -40,7 +41,7 @@
     - name: Set deployment facts
       ansible.builtin.set_fact:
         deploy_region: "{{ region if region != '' else provider_region }}"
-        service_label: "{{ mtg_label | default('mtg-proxy') if target_service == 'mtg' else outline_label | default('outline-vpn') }}"
+        service_label: "{{ target_service }}-{{ provider }}"
 
     - name: Validate SSH key 1Password path is configured
       ansible.builtin.assert:
@@ -67,6 +68,12 @@
     - name: "Provision on {{ provider }}"
       ansible.builtin.include_role:
         name: "provider_{{ provider }}"
+
+    - name: Remove old SSH host key if present
+      ansible.builtin.known_hosts:
+        name: "{{ new_host_ip }}"
+        state: absent
+      ignore_errors: true
 
     - name: Display provisioned host
       ansible.builtin.debug:

@@ -32,19 +32,15 @@
   environment:
     SB_API_PORT: "{{ outline_api_port }}"
 
-- name: Extract Outline API URL from install output
-  ansible.builtin.set_fact:
-    outline_api_url: "{{ outline_install_result.stdout | regex_search('apiUrl:(https://[^\\s]+)') | regex_replace('apiUrl:', '') }}"
-    outline_cert_sha256: "{{ outline_install_result.stdout | regex_search('certSha256:([A-F0-9]+)') | regex_replace('certSha256:', '') }}"
-  when: outline_install_result is changed
-  no_log: false
-
-- name: Read Outline access config from persisted file
+- name: Read Outline access config
   ansible.builtin.slurp:
     src: /opt/outline/access.txt
   register: outline_access_file
-  when: outline_install_result is not changed
-  ignore_errors: true
+
+- name: Parse Outline access config
+  ansible.builtin.set_fact:
+    outline_api_url: "{{ (outline_access_file.content | b64decode).split('\n') | select('match', 'apiUrl:') | first | regex_replace('^apiUrl:', '') }}"
+    outline_cert_sha256: "{{ (outline_access_file.content | b64decode).split('\n') | select('match', 'certSha256:') | first | regex_replace('^certSha256:', '') }}"
 
 # NOTE: The Outline management API port is exposed externally. Docker bypasses UFW,
 # so iptables rules would be needed to restrict it to localhost. The API requires
@@ -56,49 +52,95 @@
     port: "{{ outline_api_port }}"
     timeout: 60
 
-- name: Create first access key via Outline API
+- name: List existing access keys
+  ansible.builtin.uri:
+    url: "{{ outline_api_url }}/access-keys"
+    method: GET
+    validate_certs: false
+  register: outline_keys_list
+
+- name: Build map of existing key names
+  ansible.builtin.set_fact:
+    outline_existing_names: "{{ outline_keys_list.json.accessKeys | map(attribute='name') | list }}"
+
+- name: Delete keys not in the list
+  ansible.builtin.uri:
+    url: "{{ outline_api_url }}/access-keys/{{ item.id }}"
+    method: DELETE
+    validate_certs: false
+    status_code: [200, 204]
+  loop: "{{ outline_keys_list.json.accessKeys }}"
+  loop_control:
+    label: "{{ item.name | default('Key ' + item.id | string) }}"
+  when: item.name | default('') not in outline_key_names
+
+- name: Create missing access keys
   ansible.builtin.uri:
     url: "{{ outline_api_url }}/access-keys"
     method: POST
     validate_certs: false
     status_code: [200, 201]
-  register: outline_key_result
-  when: outline_api_url is defined and outline_api_url != ""
-  no_log: false
+  register: outline_created_keys
+  loop: "{{ outline_key_names }}"
+  when: item not in outline_existing_names
 
-- name: Display Outline access key
+- name: Name newly created access keys
+  ansible.builtin.uri:
+    url: "{{ outline_api_url }}/access-keys/{{ item.json.id }}/name"
+    method: PUT
+    validate_certs: false
+    body_format: json
+    body:
+      name: "{{ item.item }}"
+    status_code: [200, 204]
+  loop: "{{ outline_created_keys.results }}"
+  when: item is not skipped
+
+- name: Refresh access keys list
+  ansible.builtin.uri:
+    url: "{{ outline_api_url }}/access-keys"
+    method: GET
+    validate_certs: false
+  register: outline_keys_final
+
+- name: Display Outline access keys
   ansible.builtin.debug:
-    msg: "Outline access key saved to credentials file"
-  when: outline_key_result is defined and outline_key_result is not skipped
+    msg: "{{ item.name | default('Key ' + item.id | string) }}: created"
+  loop: "{{ outline_keys_final.json.accessKeys }}"
+  loop_control:
+    label: "{{ item.name | default('Key ' + item.id | string) }}"
+
+- name: Generate funny server name
+  ansible.builtin.set_fact:
+    outline_funny_name: >-
+      {%- set adjectives = ['angry', 'brave', 'calm', 'dizzy', 'eager', 'fancy', 'goofy', 'happy', 'icy', 'jolly',
+                            'keen', 'lazy', 'moody', 'noble', 'odd', 'proud', 'quiet', 'rusty', 'silly', 'tiny',
+                            'witty', 'zany', 'bold', 'crispy', 'fluffy', 'grumpy', 'hasty', 'jumpy', 'lucky', 'sneaky'] -%}
+      {%- set nouns = ['badger', 'cactus', 'donkey', 'falcon', 'gopher', 'hamster', 'iguana', 'jackal', 'koala', 'llama',
+                       'moose', 'narwhal', 'otter', 'panda', 'quokka', 'raccoon', 'sloth', 'toucan', 'walrus', 'yak',
+                       'alpaca', 'bison', 'dingo', 'ferret', 'gibbon', 'heron', 'impala', 'jaguar', 'lemur', 'marmot'] -%}
+      {%- set seed = (ansible_host | hash('md5'))[:8] | int(base=16) -%}
+      {{ adjectives[seed % (adjectives | length)] }}-{{ nouns[(seed // 31) % (nouns | length)] }}
 
 - name: Save Outline credentials to local file
   ansible.builtin.copy:
     content: |
       # Outline VPN Credentials
-      # Generated: {{ ansible_date_time.iso8601 }}
+      # Name: {{ outline_funny_name }}
+      # Generated: {{ ansible_facts['date_time']['iso8601'] }}
       # Server: {{ ansible_host }}
       # API Port: {{ outline_api_port }}
       # Access Port: {{ outline_access_port }}
 
-      Access Key (use in Outline client app):
-      {{ outline_key_result.json.accessUrl | default('N/A - check server manually') }}
+      Access Keys (share with Outline client app):
+      {% for key in outline_keys_final.json.accessKeys %}
+      {{ key.name | default('Key ' + key.id | string) }}: {{ key.accessUrl }}
+      {% endfor %}
 
-      Management API URL:
-      {{ outline_api_url | default('N/A') }}
-
-      Cert SHA256:
-      {{ outline_cert_sha256 | default('N/A') }}
-    dest: "{{ credentials_output_dir }}/outline_credentials.txt"
+      Management JSON (use in Outline Manager app):
+      {"apiUrl":"{{ outline_api_url }}","certSha256":"{{ outline_cert_sha256 }}"}
+    dest: "{{ credentials_output_dir }}/{{ service_label }}_credentials.txt"
     mode: '0600'
-  delegate_to: localhost
+  delegate_to: 127.0.0.1
+  connection: local
   become: false
-  when: outline_key_result is defined and outline_key_result is not skipped
-
-- name: Save Outline access config for future reference
-  ansible.builtin.copy:
-    content: |
-      apiUrl:{{ outline_api_url | default('') }}
-      certSha256:{{ outline_cert_sha256 | default('') }}
-    dest: /opt/outline/access.txt
-    mode: '0600'
-  when: outline_api_url is defined and outline_api_url != ""

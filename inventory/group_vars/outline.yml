@@ -3,3 +3,9 @@
 outline_api_port: 60000
 outline_access_port: 40000
 outline_label: "outline-vpn"
+
+# Access key recipients — one key per name, shown in Outline Manager
+outline_key_names:
+  - "mom"
+  - "dad"
+  - "sister"

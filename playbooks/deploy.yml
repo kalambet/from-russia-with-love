@@ -10,6 +10,10 @@
   vars:
     target_service: ""  # Required: mtg or outline
 
+  vars_files:
+    - "../inventory/group_vars/all.yml"
+    - "../inventory/group_vars/{{ target_service }}.yml"
+
   pre_tasks:
     - name: Validate target_service
       ansible.builtin.assert:
@@ -17,16 +21,29 @@
           - target_service in ['mtg', 'outline']
         fail_msg: "target_service must be 'mtg' or 'outline'"
 
-    - name: Set service port for firewall
+    - name: Read saved provider
       ansible.builtin.set_fact:
-        service_port: "{{ mtg_port if target_service == 'mtg' else outline_access_port }}"
+        saved_provider: "{{ lookup('file', credentials_output_dir + '/' + target_service + '_provider.txt') }}"
+      delegate_to: 127.0.0.1
+      connection: local
+      become: false
+      run_once: true
+
+    - name: Set service label
+      ansible.builtin.set_fact:
+        service_label: "{{ target_service }}-{{ saved_provider }}"
+
+    - name: Set service ports for firewall
+      ansible.builtin.set_fact:
+        service_ports: "{{ [mtg_port] if target_service == 'mtg' else [outline_access_port, outline_api_port] }}"
 
     - name: Ensure credentials output directory exists
       ansible.builtin.file:
         path: "{{ credentials_output_dir }}"
         state: directory
         mode: '0700'
-      delegate_to: localhost
+      delegate_to: 127.0.0.1
+      connection: local
       become: false
       run_once: true
 

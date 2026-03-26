@@ -64,8 +64,9 @@
       # Port: {{ mtg_port }}
 
       Proxy link (share this with Telegram users):
-      {{ mtg_link_result.stdout }}
-    dest: "{{ credentials_output_dir }}/mtg_credentials.txt"
+      {{ mtg_link_result.stdout | regex_replace('%3A', ':') | regex_replace('%253A', ':') }}
+    dest: "{{ credentials_output_dir }}/{{ service_label }}_credentials.txt"
     mode: '0600'
-  delegate_to: localhost
+  delegate_to: 127.0.0.1
+  connection: local
   become: false

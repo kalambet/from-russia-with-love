@@ -8,6 +8,7 @@
   gather_facts: false
 
   vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
     target_service: ""  # Required: mtg or outline
     provider: ""        # Optional: auto-detected from saved state
 
@@ -44,7 +45,7 @@
 
     - name: Set service label
       ansible.builtin.set_fact:
-        service_label: "{{ mtg_label | default('mtg-proxy') if target_service == 'mtg' else outline_label | default('outline-vpn') }}"
+        service_label: "{{ target_service }}-{{ provider }}"
 
   tasks:
     - name: "Destroy on {{ provider }}"
@@ -54,7 +55,7 @@
 
     - name: Remove old credentials file
       ansible.builtin.file:
-        path: "{{ credentials_output_dir }}/{{ target_service }}_credentials.txt"
+        path: "{{ credentials_output_dir }}/{{ service_label }}_credentials.txt"
         state: absent
 
     - name: Remove old provider file

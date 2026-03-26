@@ -8,3 +8,4 @@ keyed_groups:
 compose:
   ansible_host: ipv4[0] | default(label)
   ansible_user: "'root'"
+  ansible_python_interpreter: "'/usr/bin/python3'"
