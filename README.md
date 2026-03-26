@@ -22,24 +22,24 @@ Any service can deploy on any provider. Nodes are ephemeral: destroy and recreat
 
 ## Prerequisites
 
-- **Ansible core** >= 2.14 (with Python 3.x)
+- **Python 3.x** with `venv` support
 - **just** — command runner ([https://github.com/casey/just](https://github.com/casey/just))
 - **1Password CLI** (`op`) — installed and authenticated
 - **1Password items**:
   - `Infrastructure/Vultr` with field `api-token`
   - `Infrastructure/Linode` with field `api-token`
-- **SSH agent** with a key loaded (`ssh-add` — the playbook reads the public key from the agent via `ssh-add -L`)
-- **For Outline users**: Outline client app (iOS, Android, macOS, Windows, Linux)
+  - SSH public key stored at `op://Infrastructure/ssh-key/public key`
+- **For Outline users**: Outline client app (iOS, Android, macOS, Windows, Linux) and Outline Manager for server management
 - **For Telegram users**: no special client needed — proxy link works in the standard Telegram app
 
 ## Quick Start
 
 ```bash
-just setup                # Install Galaxy collections
+just setup                # Create venv, install Python deps + Galaxy collections
 just up mtg vultr         # Provision + deploy MTProxy on Vultr
 just up outline linode    # Provision + deploy Outline VPN on Linode
 just show mtg             # Display proxy link to share
-just show outline         # Display access key to share
+just show outline         # Display access keys + management JSON
 ```
 
 ## Commands Reference
@@ -47,20 +47,21 @@ just show outline         # Display access key to share
 | Command | Description | Example |
 |---------|-------------|---------|
 | `just` | List all available recipes | `just` |
-| `just setup` | Install Ansible Galaxy collections | `just setup` |
+| `just setup` | Create venv, install Python deps and Galaxy collections | `just setup` |
 | `just provision <service> <provider> [region]` | Provision a new VPS | `just provision mtg vultr fra` |
-| `just deploy <service> [host]` | Deploy service to a provisioned VPS | `just deploy mtg 1.2.3.4` |
+| `just deploy <service>` | Deploy service (hosts auto-discovered from inventory) | `just deploy mtg` |
 | `just up <service> <provider> [region]` | Provision + deploy in one step | `just up outline linode` |
 | `just destroy <service> [provider]` | Destroy a VPS (provider auto-detected if omitted) | `just destroy mtg` |
 | `just redeploy <service> <provider> [region]` | Destroy + provision + deploy (new IP) | `just redeploy mtg vultr fra` |
-| `just creds <service> [host]` | Fetch credentials from a running node | `just creds outline 1.2.3.4` |
-| `just show <service>` | Show saved credentials | `just show mtg` |
-| `just ip <service>` | Show saved host IP | `just ip outline` |
+| `just creds <service>` | Fetch credentials from running nodes | `just creds outline` |
+| `just show <service> [provider]` | Show saved credentials | `just show mtg linode` |
+| `just hosts` | List all hosts from dynamic inventory | `just hosts` |
+| `just hosts-for <service>` | List hosts for a specific service | `just hosts-for mtg` |
 | `just up-all [mtg_provider] [outline_provider]` | Deploy everything | `just up-all vultr linode` |
 | `just destroy-all` | Destroy everything | `just destroy-all` |
 | `just redeploy-all [mtg_provider] [outline_provider]` | Redeploy everything with fresh IPs | `just redeploy-all` |
 | `just check` | Syntax check all playbooks | `just check` |
-| `just dry-run <service> <host>` | Dry run a deploy (check mode) | `just dry-run mtg 1.2.3.4` |
+| `just dry-run <service>` | Dry run a deploy (check mode) | `just dry-run mtg` |
 
 Service values: `mtg` or `outline`. Provider values: `vultr` or `linode`.
 
@@ -72,10 +73,10 @@ When a node gets blocked by RKN, redeploy to get a new IP:
 just redeploy mtg vultr              # Same provider + region, new IP
 just redeploy mtg vultr fra          # Switch to Frankfurt
 just redeploy mtg linode             # Switch provider entirely
-just redeploy outline linode eu-west # Switch Outline region
+just redeploy outline linode fr-par-2 # Switch Outline region
 ```
 
-The redeploy workflow: destroy existing node → provision a new one → deploy the service → save fresh credentials. Credentials are regenerated automatically (new mtg secret, new Outline access key) and saved to the `credentials/` directory. Share the new link/key with family.
+The redeploy workflow: destroy existing node → provision a new one → deploy the service → save fresh credentials. Credentials are regenerated automatically (new mtg secret, new Outline access keys) and saved to the `credentials/` directory. Share the new link/key with family.
 
 ## Configuration
 
@@ -99,6 +100,7 @@ Service configs are provider-agnostic — they define *what* to run, not *where*
 | `outline_api_port` | `60000` | Outline management API port |
 | `outline_access_port` | `40000` | Outline client access port |
 | `outline_label` | `outline-vpn` | VPS instance label |
+| `outline_key_names` | `["mom", "dad", "sister"]` | Access key recipients — one named key per person, shown in Outline Manager |
 
 ### Providers (`providers/`)
 
@@ -119,7 +121,7 @@ Provider configs are the single source of truth for all infrastructure details.
 |----------|---------|-------------|
 | `provider_plan` | `g6-nanode-1` | Instance plan (1 CPU, 1GB RAM) |
 | `provider_image` | `linode/debian12` | OS image |
-| `provider_region` | `eu-west` | Default region (EU West) |
+| `provider_region` | `eu-central` | Default region (Frankfurt) |
 | `provider_op_item` | `Linode` | 1Password item name for API token |
 
 ### Switching Providers
@@ -136,6 +138,18 @@ just redeploy outline vultr fra
 
 No config files need editing to switch providers.
 
+## Credentials
+
+Credentials are saved locally in the `credentials/` directory (gitignored) using the naming convention `<service>-<provider>_credentials.txt`.
+
+**MTProxy credentials** include the Telegram proxy link (share directly with users).
+
+**Outline credentials** include:
+- Named access keys for each recipient in `outline_key_names` (share the `ss://` URL with each person)
+- Management JSON with `apiUrl` and `certSha256` (paste into Outline Manager to manage the server)
+
+To update the recipient list, edit `outline_key_names` in `inventory/group_vars/outline.yml` and run `just deploy outline`. Keys not in the list are removed, missing ones are created.
+
 ## Project Structure
 
 ```
@@ -143,15 +157,18 @@ from-russia-with-love/
 ├── ansible.cfg                           # Ansible config (inventory, SSH, pipelining)
 ├── justfile                              # Command runner recipes
 ├── requirements.yml                      # Galaxy collections (vultr, linode, docker, general)
+├── requirements.txt                      # Python dependencies (ansible-core, linode_api4, etc.)
 ├── providers/
 │   ├── vultr.yml                         # Vultr infra: plan, image, region, 1Password path
 │   └── linode.yml                        # Linode infra: plan, image, region, 1Password path
 ├── inventory/
-│   ├── hosts.yml                         # Static inventory (groups only, hosts added dynamically)
+│   ├── vultr.yml                         # Vultr dynamic inventory plugin
+│   ├── linode.yml                        # Linode dynamic inventory plugin
+│   ├── .disabled/                        # Inventory plugins moved here when token unavailable
 │   └── group_vars/
-│       ├── all.yml                       # Shared: credentials dir, 1Password vault
+│       ├── all.yml                       # Shared: credentials dir, 1Password vault, SSH key
 │       ├── mtg.yml                       # mtg service config (port, fronting, image, label)
-│       └── outline.yml                   # Outline service config (ports, label)
+│       └── outline.yml                   # Outline service config (ports, label, key recipients)
 ├── roles/
 │   ├── provider_vultr/
 │   │   └── tasks/
@@ -169,7 +186,7 @@ from-russia-with-love/
 │   │   ├── templates/config.toml.j2     # mtg config template
 │   │   └── handlers/main.yml            # Handler: restart mtg container
 │   └── outline/
-│       └── tasks/main.yml               # Install Outline, create access key, save credentials
+│       └── tasks/main.yml               # Install Outline, manage access keys, save credentials
 ├── playbooks/
 │   ├── provision.yml                     # Create VPS via provider role
 │   ├── deploy.yml                        # Run common + service role on provisioned node
@@ -185,17 +202,16 @@ from-russia-with-love/
 ## Security
 
 - **No secrets in repo** — all API tokens fetched via 1Password CLI (`op`) at runtime
-- **SSH agent** — no private key paths in config; public key read from agent at runtime, Ansible authenticates via agent
+- **SSH key from 1Password** — public key read from `op://Infrastructure/ssh-key/public key`, Ansible authenticates via SSH agent
 - **SSH key-only auth** — password authentication disabled on all nodes
-- **UFW firewall** — default deny incoming, only service port + SSH (rate-limited) allowed
+- **UFW firewall** — default deny incoming, only service ports + SSH (rate-limited) allowed
 - **Credentials files** are `0600`, directories `0700`
-- **`no_log: true`** on all tasks handling secrets (API tokens, mtg secrets, Outline keys)
-- **Host key verification enabled** — `StrictHostKeyChecking=accept-new` for ephemeral nodes
+- **Host key verification enabled** — `StrictHostKeyChecking=accept-new` for new hosts; stale keys auto-removed on reprovision
 - **`.gitignore`** excludes `credentials/` directory
+- **Dynamic inventory auto-disable** — inventory plugins are moved to `.disabled/` when their API token is unavailable, preventing auth errors
 
 ## Known Limitations
 
-- **Docker bypasses UFW** for port mapping — the Outline management API port (`60000`) may be externally reachable despite UFW rules. The API requires the cert SHA256 for authentication, which provides some protection. Consider adding `iptables` DOCKER-USER chain rules for defense in depth.
 - **Outline install script** is fetched from upstream without checksum pinning — a compromised upstream could affect new deploys.
 - **No automated monitoring** — verification is manual, via family feedback ("does it work?").
 
@@ -206,6 +222,8 @@ from-russia-with-love/
 3. Create `roles/provider_<name>/tasks/destroy.yml` — teardown logic
 4. Add the Galaxy collection to `requirements.yml`
 5. Create the 1Password item with an `api-token` field
+6. Add dynamic inventory plugin config to `inventory/<name>.yml`
+7. Add the sync-inventory logic for the new provider in the `justfile`
 
 Then use it: `just up mtg <name>`
 
@@ -213,7 +231,6 @@ Then use it: `just up mtg <name>`
 
 - Telegram bot for triggering redeployment (family members request new IP via bot)
 - Automated region rotation on block detection
-- Provider firewall rules via API (defense in depth beyond UFW)
 - Additional providers (Hetzner, DigitalOcean)
 
 ## License
