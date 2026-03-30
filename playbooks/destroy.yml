@@ -36,8 +36,8 @@
     - name: Validate provider
       ansible.builtin.assert:
         that:
-          - provider in ['vultr', 'linode']
-        fail_msg: "provider must be 'vultr' or 'linode'. Pass -e provider=vultr or ensure credentials/{{ target_service }}_provider.txt exists"
+          - provider in ['vultr', 'linode', 'upcloud']
+        fail_msg: "provider must be 'vultr', 'linode', or 'upcloud'. Pass -e provider=vultr or ensure credentials/{{ target_service }}_provider.txt exists"
 
     - name: Load provider variables
       ansible.builtin.include_vars:

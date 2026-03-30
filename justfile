@@ -11,6 +11,7 @@ op_vault := "Infrastructure"
 # Inventory plugins are auto-enabled/disabled based on token availability
 export VULTR_API_KEY := `op read "op://Infrastructure/Vultr/api-token" 2>/dev/null || echo ""`
 export LINODE_API_TOKEN := `op read "op://Infrastructure/Linode/api-token" 2>/dev/null || echo ""`
+export UPCLOUD_TOKEN := `op read "op://Infrastructure/UpCloud/api-token" 2>/dev/null || echo ""`
 
 # Auto-enable/disable inventory plugins based on available tokens
 [private]
@@ -30,6 +31,12 @@ sync-inventory:
         [ -f "$dis/linode.yml" ] && mv "$dis/linode.yml" "$inv/linode.yml" || true
     else
         [ -f "$inv/linode.yml" ] && mv "$inv/linode.yml" "$dis/linode.yml" || true
+    fi
+    # UpCloud
+    if [ -n "$UPCLOUD_TOKEN" ]; then
+        [ -f "$dis/upcloud.yml" ] && mv "$dis/upcloud.yml" "$inv/upcloud.yml" || true
+    else
+        [ -f "$inv/upcloud.yml" ] && mv "$inv/upcloud.yml" "$dis/upcloud.yml" || true
     fi
 
 # List available recipes

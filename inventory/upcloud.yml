@@ -1,0 +1,10 @@
+---
+plugin: upcloud.cloud.servers
+keyed_groups:
+  - key: tags
+    prefix: ""
+    separator: ""
+compose:
+  ansible_host: ip_addresses | selectattr('access', 'equalto', 'public') | selectattr('family', 'equalto', 'IPv4') | map(attribute='address') | first
+  ansible_user: "'root'"
+  ansible_python_interpreter: "'/usr/bin/python3'"

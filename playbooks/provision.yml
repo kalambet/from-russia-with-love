@@ -23,8 +23,8 @@
     - name: Validate provider
       ansible.builtin.assert:
         that:
-          - provider in ['vultr', 'linode']
-        fail_msg: "provider must be 'vultr' or 'linode'"
+          - provider in ['vultr', 'linode', 'upcloud']
+        fail_msg: "provider must be 'vultr', 'linode', or 'upcloud'"
 
     - name: Load service variables
       ansible.builtin.include_vars:

@@ -1,0 +1,115 @@
+---
+# Provider role: UpCloud — provision a VPS via API
+# Contract:
+#   Expects: op_vault, provider_op_item, provider_plan, provider_image,
+#            deploy_region, service_label, target_service, ssh_public_key_content
+#   Sets fact: new_host_ip
+
+- name: Read UpCloud API token from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/api-token"
+  register: provider_api_token
+  no_log: false
+  changed_when: false
+
+- name: List existing UpCloud servers
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+    status_code: 200
+  register: upcloud_servers
+
+- name: Check if server already exists
+  ansible.builtin.set_fact:
+    upcloud_existing: "{{ upcloud_servers.json.servers.server | selectattr('hostname', 'equalto', service_label) | list }}"
+
+- name: Create UpCloud server
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      server:
+        zone: "{{ deploy_region }}"
+        title: "{{ service_label }}"
+        hostname: "{{ service_label }}"
+        plan: "{{ provider_plan }}"
+        metadata: "yes"
+        storage_devices:
+          storage_device:
+            - action: clone
+              storage: "{{ provider_image }}"
+              title: "{{ service_label }}-disk"
+              size: 25
+        login_user:
+          username: root
+          create_password: "no"
+          ssh_keys:
+            ssh_key:
+              - "{{ ssh_public_key_content }}"
+        networking:
+          interfaces:
+            interface:
+              - index: 1
+                ip_addresses:
+                  ip_address:
+                    - family: IPv4
+                type: public
+    status_code: [200, 201, 202]
+  register: upcloud_created
+  when: upcloud_existing | length == 0
+
+- name: Set server UUID
+  ansible.builtin.set_fact:
+    upcloud_server_uuid: "{{ upcloud_created.json.server.uuid if upcloud_existing | length == 0 else upcloud_existing[0].uuid }}"
+
+- name: Wait for UpCloud server to start
+  ansible.builtin.pause:
+    seconds: 45
+  when: upcloud_existing | length == 0
+
+- name: Get server details
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server/{{ upcloud_server_uuid }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+    status_code: 200
+  register: upcloud_server_info
+  until: upcloud_server_info.json.server.state == "started"
+  retries: 12
+  delay: 10
+
+- name: Set new host IP
+  ansible.builtin.set_fact:
+    new_host_ip: "{{ upcloud_server_info.json.server.ip_addresses.ip_address | selectattr('access', 'equalto', 'public') | selectattr('family', 'equalto', 'IPv4') | map(attribute='address') | first }}"
+
+- name: Ensure tag exists
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/tag"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      tag:
+        name: "{{ target_service }}"
+    status_code: [201, 409]
+  register: upcloud_tag_result
+
+- name: Tag server with service name
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server/{{ upcloud_server_uuid }}/tag/{{ target_service }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+    status_code: [200, 201]

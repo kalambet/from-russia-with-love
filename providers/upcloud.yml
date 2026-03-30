@@ -1,0 +1,6 @@
+---
+provider_name: "upcloud"
+provider_plan: "DEV-1xCPU-1GB"
+provider_image: "01000000-0000-4000-8000-000020070100"  # Debian GNU/Linux 12 (Bookworm)
+provider_op_item: "UpCloud"
+provider_region: "nl-ams1"

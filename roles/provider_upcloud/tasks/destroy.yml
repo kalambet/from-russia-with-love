@@ -1,0 +1,69 @@
+---
+# Provider role: UpCloud — destroy a VPS via API
+# Contract:
+#   Expects: op_vault, provider_op_item, service_label
+
+- name: Read UpCloud API token from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/api-token"
+  register: provider_api_token
+  no_log: false
+  changed_when: false
+
+- name: List UpCloud servers
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+    status_code: 200
+  register: upcloud_servers
+
+- name: Find server to destroy
+  ansible.builtin.set_fact:
+    upcloud_target: "{{ upcloud_servers.json.servers.server | selectattr('hostname', 'equalto', service_label) | list }}"
+
+- name: Stop UpCloud server
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server/{{ upcloud_target[0].uuid }}/stop"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      stop_server:
+        stop_type: hard
+        timeout: 60
+    status_code: [200, 201, 202, 409]
+  when: upcloud_target | length > 0
+
+- name: Wait for server to stop
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server/{{ upcloud_target[0].uuid }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+    status_code: 200
+  register: upcloud_stop_check
+  until: upcloud_stop_check.json.server.state == "stopped"
+  retries: 12
+  delay: 10
+  when: upcloud_target | length > 0
+
+- name: Destroy UpCloud server and storage
+  ansible.builtin.uri:
+    url: "https://api.upcloud.com/1.3/server/{{ upcloud_target[0].uuid }}?storages=1&backups=delete"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ provider_api_token.stdout }}"
+    status_code: [200, 204]
+  when: upcloud_target | length > 0
+
+- name: No server found to destroy
+  ansible.builtin.debug:
+    msg: "No UpCloud server found with hostname '{{ service_label }}'"
+  when: upcloud_target | length == 0

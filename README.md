@@ -1,6 +1,6 @@
 # from-russia-with-love
 
-Ansible infrastructure for deploying anti-censorship proxy nodes — **mtg** (MTProxy for Telegram) and **Outline VPN** (Shadowsocks) — across Vultr and Linode. Designed for rapid redeployment when IPs get blocked by RKN (Roskomnadzor). Destroy the blocked node, spin up a fresh one with a new IP, share updated credentials — all in one command.
+Ansible infrastructure for deploying anti-censorship proxy nodes — **mtg** (MTProxy for Telegram) and **Outline VPN** (Shadowsocks) — across Vultr, Linode, and UpCloud. Designed for rapid redeployment when IPs get blocked by RKN (Roskomnadzor). Destroy the blocked node, spin up a fresh one with a new IP, share updated credentials — all in one command.
 
 ## Architecture
 
@@ -11,6 +11,7 @@ Ansible infrastructure for deploying anti-censorship proxy nodes — **mtg** (MT
 ├─────────────────┤     ├─────────────────┤
 │  mtg            │ ──▶ │  vultr          │
 │  outline        │ ──▶ │  linode         │
+│                 │ ──▶ │  upcloud        │
 └─────────────────┘     └─────────────────┘
 ```
 
@@ -28,6 +29,7 @@ Any service can deploy on any provider. Nodes are ephemeral: destroy and recreat
 - **1Password items**:
   - `Infrastructure/Vultr` with field `api-token`
   - `Infrastructure/Linode` with field `api-token`
+  - `Infrastructure/UpCloud` with field `api-token` (Bearer token)
   - SSH public key stored at `op://Infrastructure/ssh-key/public key`
 - **For Outline users**: Outline client app (iOS, Android, macOS, Windows, Linux) and Outline Manager for server management
 - **For Telegram users**: no special client needed — proxy link works in the standard Telegram app
@@ -63,7 +65,7 @@ just show outline         # Display access keys + management JSON
 | `just check` | Syntax check all playbooks | `just check` |
 | `just dry-run <service>` | Dry run a deploy (check mode) | `just dry-run mtg` |
 
-Service values: `mtg` or `outline`. Provider values: `vultr` or `linode`.
+Service values: `mtg` or `outline`. Provider values: `vultr`, `linode`, or `upcloud`.
 
 ## Redeployment (When Blocked)
 
@@ -124,6 +126,15 @@ Provider configs are the single source of truth for all infrastructure details.
 | `provider_region` | `eu-central` | Default region (Frankfurt) |
 | `provider_op_item` | `Linode` | 1Password item name for API token |
 
+**`upcloud.yml`**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `provider_plan` | `DEV-1xCPU-1GB` | Developer plan (1 CPU, 1GB RAM) |
+| `provider_image` | `Debian GNU/Linux 12 (Bookworm)` | OS image (storage template title) |
+| `provider_region` | `nl-ams1` | Default region (Amsterdam) |
+| `provider_op_item` | `UpCloud` | 1Password item name for API token (Bearer) |
+
 ### Switching Providers
 
 Provider is chosen at deploy time — just pass a different provider:
@@ -160,10 +171,12 @@ from-russia-with-love/
 ├── requirements.txt                      # Python dependencies (ansible-core, linode_api4, etc.)
 ├── providers/
 │   ├── vultr.yml                         # Vultr infra: plan, image, region, 1Password path
-│   └── linode.yml                        # Linode infra: plan, image, region, 1Password path
+│   ├── linode.yml                        # Linode infra: plan, image, region, 1Password path
+│   └── upcloud.yml                       # UpCloud infra: plan, image, region, 1Password path
 ├── inventory/
 │   ├── vultr.yml                         # Vultr dynamic inventory plugin
 │   ├── linode.yml                        # Linode dynamic inventory plugin
+│   ├── upcloud.yml                       # UpCloud dynamic inventory plugin
 │   ├── .disabled/                        # Inventory plugins moved here when token unavailable
 │   └── group_vars/
 │       ├── all.yml                       # Shared: credentials dir, 1Password vault, SSH key
@@ -178,6 +191,10 @@ from-russia-with-love/
 │   │   └── tasks/
 │   │       ├── main.yml                  # Provision: API token → create instance
 │   │       └── destroy.yml               # Destroy: API token → delete instance
+│   ├── provider_upcloud/
+│   │   └── tasks/
+│   │       ├── main.yml                  # Provision: API token → create server via REST API
+│   │       └── destroy.yml               # Destroy: API token → stop + delete server via REST API
 │   ├── common/
 │   │   ├── tasks/main.yml               # Base setup: apt, Docker, UFW, SSH hardening
 │   │   └── handlers/main.yml            # Handler: restart sshd
