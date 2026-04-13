@@ -1,0 +1,63 @@
+---
+# Provider role: GCP — destroy a Compute Engine VM
+# Contract:
+#   Expects: op_vault, provider_op_item, service_label, target_service, deploy_region
+
+- name: Read GCP service account JSON from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/service-account-json"
+  register: gcp_credentials_raw
+  no_log: false
+  changed_when: false
+
+- name: Set GCP auth facts
+  ansible.builtin.set_fact:
+    gcp_credentials: "{{ gcp_credentials_raw.stdout | from_json }}"
+    gcp_project: "{{ (gcp_credentials_raw.stdout | from_json).project_id }}"
+
+- name: Find existing GCP instance
+  google.cloud.gcp_compute_instance_info:
+    project: "{{ gcp_project }}"
+    zone: "{{ deploy_region }}"
+    filters:
+      - "name = {{ service_label }}"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+  register: gcp_existing
+
+- name: Destroy GCP instance
+  google.cloud.gcp_compute_instance:
+    name: "{{ service_label }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ gcp_existing.resources[0].zone | regex_replace('.*/zones/', '') }}"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: absent
+  when: gcp_existing.resources | length > 0
+
+- name: Remove firewall rule
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ service_label }}"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: absent
+  ignore_errors: true
+
+- name: Remove Outline API firewall rule
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ service_label }}-api"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: absent
+  when: target_service == "outline"
+  ignore_errors: true
+
+- name: No instance found to destroy
+  ansible.builtin.debug:
+    msg: "No GCP instance found with name '{{ service_label }}'"
+  when: gcp_existing.resources | length == 0

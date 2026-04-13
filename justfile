@@ -12,6 +12,7 @@ op_vault := "Infrastructure"
 export VULTR_API_KEY := `op read "op://Infrastructure/Vultr/api-token" 2>/dev/null || echo ""`
 export LINODE_API_TOKEN := `op read "op://Infrastructure/Linode/api-token" 2>/dev/null || echo ""`
 export UPCLOUD_TOKEN := `op read "op://Infrastructure/UpCloud/api-token" 2>/dev/null || echo ""`
+export GCP_SERVICE_ACCOUNT_CONTENTS := `op read "op://Infrastructure/GCP/service-account-json" 2>/dev/null || echo ""`
 
 # Auto-enable/disable inventory plugins based on available tokens
 [private]
@@ -37,6 +38,12 @@ sync-inventory:
         [ -f "$dis/upcloud.yml" ] && mv "$dis/upcloud.yml" "$inv/upcloud.yml" || true
     else
         [ -f "$inv/upcloud.yml" ] && mv "$inv/upcloud.yml" "$dis/upcloud.yml" || true
+    fi
+    # GCP
+    if [ -n "$GCP_SERVICE_ACCOUNT_CONTENTS" ]; then
+        [ -f "$dis/gcp_compute.yml" ] && mv "$dis/gcp_compute.yml" "$inv/gcp_compute.yml" || true
+    else
+        [ -f "$inv/gcp_compute.yml" ] && mv "$inv/gcp_compute.yml" "$dis/gcp_compute.yml" || true
     fi
 
 # List available recipes
@@ -64,21 +71,40 @@ provision service provider region="":
         -e provider={{provider}} \
         {{ if region != "" { "-e region=" + region } else { "" } }}
 
-# Deploy service to a provisioned VPS (host auto-discovered from inventory)
+# Deploy service to all nodes in the service group (from dynamic inventory)
 deploy service: sync-inventory
     {{venv}}ansible-playbook {{playbooks}}/deploy.yml \
         -e target_service={{service}}
 
-# Provision + deploy in one step
-up service provider region="":
-    just provision {{service}} {{provider}} {{region}}
-    just deploy {{service}}
+# Deploy service to a specific host by IP (provider needed for credential naming)
+# SSH keys provided by 1Password SSH agent
+deploy-host service provider host:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{provider}}" = "gcp" ]; then
+        USER="ansible"
+    else
+        USER="root"
+    fi
+    {{venv}}ansible-playbook -i {{host}}, {{playbooks}}/deploy.yml \
+        -e target_service={{service}} \
+        -e target_host={{host}} \
+        -e provider={{provider}} \
+        -e ansible_user="$USER"
 
-# Destroy a VPS (provider auto-detected from saved state, or pass explicitly)
-destroy service provider="":
+# Provision + deploy in one step (targets only the newly provisioned host)
+up service provider region="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just provision {{service}} {{provider}} {{region}}
+    HOST=$(cat credentials/{{service}}-{{provider}}_host_ip.txt)
+    just deploy-host {{service}} {{provider}} "$HOST"
+
+# Destroy a VPS (provider required since multiple can coexist)
+destroy service provider:
     {{venv}}ansible-playbook -i localhost, {{playbooks}}/destroy.yml \
         -e target_service={{service}} \
-        {{ if provider != "" { "-e provider=" + provider } else { "" } }}
+        -e provider={{provider}}
 
 # Redeploy: destroy + provision + deploy (new IP)
 redeploy service provider region="":
@@ -120,10 +146,10 @@ up-all mtg_provider="vultr" outline_provider="linode":
     just up mtg {{mtg_provider}}
     just up outline {{outline_provider}}
 
-# Destroy everything
-destroy-all:
-    just destroy mtg
-    just destroy outline
+# Destroy everything on specific providers
+destroy-all mtg_provider="vultr" outline_provider="linode":
+    just destroy mtg {{mtg_provider}}
+    just destroy outline {{outline_provider}}
 
 # Redeploy everything with fresh IPs
 redeploy-all mtg_provider="vultr" outline_provider="linode":

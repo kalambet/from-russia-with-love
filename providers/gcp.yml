@@ -1,0 +1,7 @@
+---
+provider_name: "gcp"
+provider_plan: "e2-micro"
+provider_image: "debian-12"
+provider_op_item: "GCP"
+provider_region: "europe-west3-a"
+provider_ssh_user: "ansible"

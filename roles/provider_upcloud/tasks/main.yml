@@ -103,7 +103,7 @@
     body:
       tag:
         name: "{{ target_service }}"
-    status_code: [201, 409]
+    status_code: [200, 201, 409]
   register: upcloud_tag_result
 
 - name: Tag server with service name

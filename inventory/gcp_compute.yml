@@ -1,0 +1,15 @@
+---
+plugin: google.cloud.gcp_compute
+# Auth via GCP_SERVICE_ACCOUNT_CONTENTS env var (set by justfile via op read)
+auth_kind: serviceaccount
+hostnames:
+  - name
+groups:
+  mtg: "'mtg' in labels.service | default('')"
+  outline: "'outline' in labels.service | default('')"
+filters:
+  - "status = RUNNING"
+compose:
+  ansible_host: networkInterfaces[0].accessConfigs[0].natIP
+  ansible_user: "'ansible'"
+  ansible_python_interpreter: "'/usr/bin/python3'"

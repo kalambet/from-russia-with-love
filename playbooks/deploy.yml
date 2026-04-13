@@ -3,7 +3,7 @@
 # Hosts are discovered via dynamic inventory (tagged with service name)
 # Usage: ansible-playbook playbooks/deploy.yml -e target_service=mtg
 - name: "Deploy {{ target_service | default('service') }}"
-  hosts: "{{ target_service }}"
+  hosts: "{{ target_host | default(target_service) }}"
   gather_facts: false
   become: true
 
@@ -21,17 +21,15 @@
           - target_service in ['mtg', 'outline']
         fail_msg: "target_service must be 'mtg' or 'outline'"
 
-    - name: Read saved provider
-      ansible.builtin.set_fact:
-        saved_provider: "{{ lookup('file', credentials_output_dir + '/' + target_service + '_provider.txt') }}"
-      delegate_to: 127.0.0.1
-      connection: local
-      become: false
-      run_once: true
-
     - name: Set service label
       ansible.builtin.set_fact:
-        service_label: "{{ target_service }}-{{ saved_provider }}"
+        service_label: "{{ target_service }}-{{ provider }}"
+      when: provider is defined and provider != ""
+
+    - name: Derive service label from inventory hostname
+      ansible.builtin.set_fact:
+        service_label: "{{ inventory_hostname }}"
+      when: provider is not defined or provider == ""
 
     - name: Set service ports for firewall
       ansible.builtin.set_fact:

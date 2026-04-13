@@ -1,0 +1,100 @@
+---
+# Provider role: GCP — provision a Compute Engine VM via API
+# Contract:
+#   Expects: op_vault, provider_op_item, provider_plan, provider_image,
+#            deploy_region, service_label, target_service, ssh_public_key_content
+#   Sets fact: new_host_ip
+#
+# GCP-specific notes:
+#   - deploy_region is a zone (e.g., europe-west3-a), not just a region
+#   - Auth via service account JSON stored in 1Password
+#   - Project ID extracted from the service account JSON
+#   - Firewall rules created per-service (idempotent)
+#   - SSH key passed via instance metadata
+
+- name: Read GCP service account JSON from 1Password
+  ansible.builtin.command:
+    argv:
+      - op
+      - read
+      - "op://{{ op_vault }}/{{ provider_op_item }}/service-account-json"
+  register: gcp_credentials_raw
+  no_log: false
+  changed_when: false
+
+- name: Set GCP auth facts
+  ansible.builtin.set_fact:
+    gcp_credentials: "{{ gcp_credentials_raw.stdout | from_json }}"
+    gcp_project: "{{ (gcp_credentials_raw.stdout | from_json).project_id }}"
+
+- name: Ensure firewall rule for service port
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ service_label }}"
+    project: "{{ gcp_project }}"
+    allowed:
+      - ip_protocol: tcp
+        ports:
+          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port | default('40000') }}"
+    target_tags:
+      - "{{ target_service }}"
+    source_ranges:
+      - "0.0.0.0/0"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: present
+
+- name: Ensure firewall rule for Outline API port
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ service_label }}-api"
+    project: "{{ gcp_project }}"
+    allowed:
+      - ip_protocol: tcp
+        ports:
+          - "{{ outline_api_port | default('60000') }}"
+    target_tags:
+      - "{{ target_service }}"
+    source_ranges:
+      - "0.0.0.0/0"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: present
+  when: target_service == "outline"
+
+- name: Create GCP Compute Engine instance
+  google.cloud.gcp_compute_instance:
+    name: "{{ service_label }}"
+    project: "{{ gcp_project }}"
+    zone: "{{ deploy_region }}"
+    machine_type: "{{ provider_plan }}"
+    disks:
+      - boot: true
+        auto_delete: true
+        initialize_params:
+          source_image: "projects/debian-cloud/global/images/family/{{ provider_image }}"
+          disk_size_gb: 10
+    network_interfaces:
+      - access_configs:
+          - name: External NAT
+            type: ONE_TO_ONE_NAT
+    tags:
+      items:
+        - "{{ target_service }}"
+    labels:
+      service: "{{ target_service }}"
+      managed_by: ansible
+    metadata:
+      ssh-keys: "ansible:{{ ssh_public_key_content }}"
+      enable-oslogin: "FALSE"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: present
+  register: gcp_instance
+
+- name: Wait for GCP instance to be running
+  ansible.builtin.pause:
+    seconds: 30
+  when: gcp_instance is changed
+
+- name: Set new host IP
+  ansible.builtin.set_fact:
+    new_host_ip: "{{ gcp_instance.networkInterfaces[0].accessConfigs[0].natIP }}"

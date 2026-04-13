@@ -3,3 +3,5 @@ linode_api4
 polling
 ansible-specdoc
 upcloud-api>=2.8.0
+google-auth>=2.0.0
+requests

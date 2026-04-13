@@ -23,8 +23,8 @@
     - name: Validate provider
       ansible.builtin.assert:
         that:
-          - provider in ['vultr', 'linode', 'upcloud']
-        fail_msg: "provider must be 'vultr', 'linode', or 'upcloud'"
+          - provider in ['vultr', 'linode', 'upcloud', 'gcp']
+        fail_msg: "provider must be 'vultr', 'linode', 'upcloud', or 'gcp'"
 
     - name: Confirm redeployment
       ansible.builtin.debug:

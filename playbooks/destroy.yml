@@ -27,17 +27,11 @@
       ansible.builtin.include_vars:
         file: "../inventory/group_vars/all.yml"
 
-    - name: Auto-detect provider from saved state
-      ansible.builtin.set_fact:
-        provider: "{{ lookup('file', credentials_output_dir + '/' + target_service + '_provider.txt') }}"
-      when: provider == ""
-      ignore_errors: true
-
     - name: Validate provider
       ansible.builtin.assert:
         that:
-          - provider in ['vultr', 'linode', 'upcloud']
-        fail_msg: "provider must be 'vultr', 'linode', or 'upcloud'. Pass -e provider=vultr or ensure credentials/{{ target_service }}_provider.txt exists"
+          - provider in ['vultr', 'linode', 'upcloud', 'gcp']
+        fail_msg: "provider is required. Pass -e provider=vultr (or linode, upcloud, gcp)"
 
     - name: Load provider variables
       ansible.builtin.include_vars:
@@ -46,6 +40,16 @@
     - name: Set service label
       ansible.builtin.set_fact:
         service_label: "{{ target_service }}-{{ provider }}"
+
+    - name: Load saved deploy region
+      ansible.builtin.set_fact:
+        deploy_region: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_region.txt') }}"
+      ignore_errors: true
+
+    - name: Fall back to provider default region
+      ansible.builtin.set_fact:
+        deploy_region: "{{ provider_region }}"
+      when: deploy_region is not defined or deploy_region == ""
 
   tasks:
     - name: "Destroy on {{ provider }}"
@@ -60,7 +64,17 @@
 
     - name: Remove old provider file
       ansible.builtin.file:
-        path: "{{ credentials_output_dir }}/{{ target_service }}_provider.txt"
+        path: "{{ credentials_output_dir }}/{{ service_label }}_provider.txt"
+        state: absent
+
+    - name: Remove old host IP file
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_host_ip.txt"
+        state: absent
+
+    - name: Remove old region file
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_region.txt"
         state: absent
 
     - name: Display destruction complete

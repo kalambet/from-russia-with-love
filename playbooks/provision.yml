@@ -23,8 +23,8 @@
     - name: Validate provider
       ansible.builtin.assert:
         that:
-          - provider in ['vultr', 'linode', 'upcloud']
-        fail_msg: "provider must be 'vultr', 'linode', or 'upcloud'"
+          - provider in ['vultr', 'linode', 'upcloud', 'gcp']
+        fail_msg: "provider must be 'vultr', 'linode', 'upcloud', or 'gcp'"
 
     - name: Load service variables
       ansible.builtin.include_vars:
@@ -43,25 +43,29 @@
         deploy_region: "{{ region if region != '' else provider_region }}"
         service_label: "{{ target_service }}-{{ provider }}"
 
+    - name: Set SSH key 1Password path (provider-specific or default)
+      ansible.builtin.set_fact:
+        effective_ssh_key_item: "{{ provider_ssh_key_item | default(op_ssh_key_item) }}"
+
     - name: Validate SSH key 1Password path is configured
       ansible.builtin.assert:
         that:
-          - op_ssh_key_item != ""
-        fail_msg: "op_ssh_key_item must be set in inventory/group_vars/all.yml (e.g. 'op://Infrastructure/SSH Key/public key')"
+          - effective_ssh_key_item != ""
+        fail_msg: "No SSH key configured. Set provider_ssh_key_item in providers/<provider>.yml or op_ssh_key_item in group_vars/all.yml"
 
     - name: Read SSH public key from 1Password
       ansible.builtin.command:
         argv:
           - op
           - read
-          - "{{ op_ssh_key_item }}"
+          - "{{ effective_ssh_key_item }}"
       register: ssh_key_result
       no_log: false
       changed_when: false
 
     - name: Set SSH public key
       ansible.builtin.set_fact:
-        ssh_public_key_content: "{{ ssh_key_result.stdout | trim }}"
+        ssh_public_key_content: "{{ ssh_key_result.stdout | trim | regex_replace('\\s+$', '') }}"
       no_log: false
 
   tasks:
@@ -82,7 +86,21 @@
     - name: Save provider for destroy/redeploy
       ansible.builtin.copy:
         content: "{{ provider }}"
-        dest: "{{ credentials_output_dir }}/{{ target_service }}_provider.txt"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_provider.txt"
+        mode: '0600'
+      delegate_to: localhost
+
+    - name: Save host IP for targeted deploy
+      ansible.builtin.copy:
+        content: "{{ new_host_ip }}"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_host_ip.txt"
+        mode: '0600'
+      delegate_to: localhost
+
+    - name: Save deploy region for destroy
+      ansible.builtin.copy:
+        content: "{{ deploy_region }}"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_region.txt"
         mode: '0600'
       delegate_to: localhost
 
