@@ -43,6 +43,35 @@
         deploy_region: "{{ region if region != '' else provider_region }}"
         service_label: "{{ target_service }}-{{ provider }}"
 
+    - name: Generate random Outline API port
+      ansible.builtin.set_fact:
+        outline_api_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline'
+
+    - name: Generate random Outline access port
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline'
+
+    - name: Ensure Outline ports are different
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline' and outline_api_port | string == outline_access_port | string
+
+    - name: Save Outline API port
+      ansible.builtin.copy:
+        content: "{{ outline_api_port }}"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_api_port.txt"
+        mode: '0600'
+      when: target_service == 'outline'
+
+    - name: Save Outline access port
+      ansible.builtin.copy:
+        content: "{{ outline_access_port }}"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_access_port.txt"
+        mode: '0600'
+      when: target_service == 'outline'
+
     - name: Set SSH key 1Password path (provider-specific or default)
       ansible.builtin.set_fact:
         effective_ssh_key_item: "{{ provider_ssh_key_item | default(op_ssh_key_item) }}"

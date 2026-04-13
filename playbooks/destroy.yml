@@ -77,6 +77,16 @@
         path: "{{ credentials_output_dir }}/{{ service_label }}_region.txt"
         state: absent
 
+    - name: Remove old API port file
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_api_port.txt"
+        state: absent
+
+    - name: Remove old access port file
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_access_port.txt"
+        state: absent
+
     - name: Display destruction complete
       ansible.builtin.debug:
         msg: "Destroyed {{ service_label }} on {{ provider }}"

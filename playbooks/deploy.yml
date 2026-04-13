@@ -31,6 +31,33 @@
         service_label: "{{ inventory_hostname }}"
       when: provider is not defined or provider == ""
 
+    - name: Load saved Outline API port
+      ansible.builtin.set_fact:
+        outline_api_port: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_api_port.txt') }}"
+      when: target_service == 'outline'
+      ignore_errors: true
+
+    - name: Load saved Outline access port
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_access_port.txt') }}"
+      when: target_service == 'outline'
+      ignore_errors: true
+
+    - name: Generate random Outline API port
+      ansible.builtin.set_fact:
+        outline_api_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline' and (outline_api_port is not defined or outline_api_port == '')
+
+    - name: Generate random Outline access port
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline' and (outline_access_port is not defined or outline_access_port == '')
+
+    - name: Ensure Outline ports are different
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline' and outline_api_port | string == outline_access_port | string
+
     - name: Set service ports for firewall
       ansible.builtin.set_fact:
         service_ports: "{{ [mtg_port] if target_service == 'mtg' else [outline_access_port, outline_api_port] }}"

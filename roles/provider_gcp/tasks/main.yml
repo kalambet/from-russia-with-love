@@ -34,7 +34,10 @@
     allowed:
       - ip_protocol: tcp
         ports:
-          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port | default('40000') }}"
+          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port }}"
+      - ip_protocol: udp
+        ports:
+          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port }}"
     target_tags:
       - "{{ target_service }}"
     source_ranges:
@@ -50,7 +53,7 @@
     allowed:
       - ip_protocol: tcp
         ports:
-          - "{{ outline_api_port | default('60000') }}"
+          - "{{ outline_api_port }}"
     target_tags:
       - "{{ target_service }}"
     source_ranges:
