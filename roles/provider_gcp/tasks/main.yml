@@ -34,7 +34,7 @@
     allowed:
       - ip_protocol: tcp
         ports:
-          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port | default('') }}"
+          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port }}"
     target_tags:
       - "{{ target_service }}"
     source_ranges:
