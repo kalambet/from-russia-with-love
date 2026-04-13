@@ -1,7 +1,7 @@
 ---
 # Deploy service to a provisioned VPS
 # Hosts are discovered via dynamic inventory (tagged with service name)
-# Usage: ansible-playbook playbooks/deploy.yml -e target_service=mtg
+# Usage: ansible-playbook playbooks/deploy.yml -e target_service=mtg -e provider=vultr
 - name: "Deploy {{ target_service | default('service') }}"
   hosts: "{{ target_host | default(target_service) }}"
   gather_facts: false
@@ -9,6 +9,7 @@
 
   vars:
     target_service: ""  # Required: mtg or outline
+    provider: ""        # Required: vultr, linode, upcloud, or gcp
 
   vars_files:
     - "../inventory/group_vars/all.yml"
@@ -21,15 +22,15 @@
           - target_service in ['mtg', 'outline']
         fail_msg: "target_service must be 'mtg' or 'outline'"
 
+    - name: Validate provider
+      ansible.builtin.assert:
+        that:
+          - provider in ['vultr', 'linode', 'upcloud', 'gcp']
+        fail_msg: "provider must be 'vultr', 'linode', 'upcloud', or 'gcp'"
+
     - name: Set service label
       ansible.builtin.set_fact:
         service_label: "{{ target_service }}-{{ provider }}"
-      when: provider is defined and provider != ""
-
-    - name: Derive service label from inventory hostname
-      ansible.builtin.set_fact:
-        service_label: "{{ inventory_hostname }}"
-      when: provider is not defined or provider == ""
 
     - name: Check saved Outline API port file
       ansible.builtin.stat:
