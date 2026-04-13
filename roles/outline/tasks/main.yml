@@ -7,7 +7,7 @@
 
 - name: Download Outline install script
   ansible.builtin.get_url:
-    url: https://raw.githubusercontent.com/Jigsaw-Code/outline-server/master/src/server_manager/install_scripts/install_server.sh
+    url: https://raw.githubusercontent.com/Jigsaw-Code/outline-apps/master/server_manager/install_scripts/install_server.sh
     dest: /opt/outline/install_server.sh
     mode: '0755'
 
@@ -23,14 +23,14 @@
       - /opt/outline/install_server.sh
       - --hostname
       - "{{ ansible_host }}"
+      - --api-port
+      - "{{ outline_api_port }}"
       - --keys-port
       - "{{ outline_access_port }}"
   register: outline_install_result
   when: outline_check.stdout == ""
   changed_when: true
   no_log: false
-  environment:
-    SB_API_PORT: "{{ outline_api_port }}"
 
 - name: Read Outline access config
   ansible.builtin.slurp:

@@ -43,6 +43,58 @@
         deploy_region: "{{ region if region != '' else provider_region }}"
         service_label: "{{ target_service }}-{{ provider }}"
 
+    - name: Ensure credentials output directory exists
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: Check for existing Outline API port file
+      ansible.builtin.stat:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_api_port.txt"
+      register: existing_api_port_file
+      when: target_service == 'outline'
+
+    - name: Check for existing Outline access port file
+      ansible.builtin.stat:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_access_port.txt"
+      register: existing_access_port_file
+      when: target_service == 'outline'
+
+    - name: Load existing Outline API port
+      ansible.builtin.set_fact:
+        outline_api_port: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_api_port.txt') }}"
+      when: target_service == 'outline' and (existing_api_port_file.stat.exists | default(false))
+
+    - name: Load existing Outline access port
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_access_port.txt') }}"
+      when: target_service == 'outline' and (existing_access_port_file.stat.exists | default(false))
+
+    - name: Generate random Outline API port
+      ansible.builtin.set_fact:
+        outline_api_port: "{{ range(1024, 65536) | random }}"
+      when: target_service == 'outline' and not (existing_api_port_file.stat.exists | default(false))
+
+    - name: Generate random Outline access port (guaranteed different from API port)
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ (range(1024, 65536) | reject('equalto', outline_api_port | int) | list) | random }}"
+      when: target_service == 'outline' and not (existing_access_port_file.stat.exists | default(false))
+
+    - name: Save Outline API port
+      ansible.builtin.copy:
+        content: "{{ outline_api_port }}"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_api_port.txt"
+        mode: '0600'
+      when: target_service == 'outline'
+
+    - name: Save Outline access port
+      ansible.builtin.copy:
+        content: "{{ outline_access_port }}"
+        dest: "{{ credentials_output_dir }}/{{ service_label }}_access_port.txt"
+        mode: '0600'
+      when: target_service == 'outline'
+
     - name: Set SSH key 1Password path (provider-specific or default)
       ansible.builtin.set_fact:
         effective_ssh_key_item: "{{ provider_ssh_key_item | default(op_ssh_key_item) }}"

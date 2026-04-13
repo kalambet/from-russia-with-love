@@ -27,14 +27,14 @@
     gcp_credentials: "{{ gcp_credentials_raw.stdout | from_json }}"
     gcp_project: "{{ (gcp_credentials_raw.stdout | from_json).project_id }}"
 
-- name: Ensure firewall rule for service port
+- name: Ensure firewall rule for service port (TCP)
   google.cloud.gcp_compute_firewall:
     name: "allow-{{ service_label }}"
     project: "{{ gcp_project }}"
     allowed:
       - ip_protocol: tcp
         ports:
-          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port | default('40000') }}"
+          - "{{ mtg_port | default('443') if target_service == 'mtg' else outline_access_port }}"
     target_tags:
       - "{{ target_service }}"
     source_ranges:
@@ -43,6 +43,23 @@
     service_account_contents: "{{ gcp_credentials | to_json }}"
     state: present
 
+- name: Ensure firewall rule for Outline access port (UDP)
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ service_label }}-udp"
+    project: "{{ gcp_project }}"
+    allowed:
+      - ip_protocol: udp
+        ports:
+          - "{{ outline_access_port }}"
+    target_tags:
+      - "{{ target_service }}"
+    source_ranges:
+      - "0.0.0.0/0"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: present
+  when: target_service == "outline"
+
 - name: Ensure firewall rule for Outline API port
   google.cloud.gcp_compute_firewall:
     name: "allow-{{ service_label }}-api"
@@ -50,7 +67,7 @@
     allowed:
       - ip_protocol: tcp
         ports:
-          - "{{ outline_api_port | default('60000') }}"
+          - "{{ outline_api_port }}"
     target_tags:
       - "{{ target_service }}"
     source_ranges:

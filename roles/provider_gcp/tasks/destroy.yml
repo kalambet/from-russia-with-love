@@ -57,6 +57,16 @@
   when: target_service == "outline"
   ignore_errors: true
 
+- name: Remove Outline UDP firewall rule
+  google.cloud.gcp_compute_firewall:
+    name: "allow-{{ service_label }}-udp"
+    project: "{{ gcp_project }}"
+    auth_kind: serviceaccount
+    service_account_contents: "{{ gcp_credentials | to_json }}"
+    state: absent
+  when: target_service == "outline"
+  ignore_errors: true
+
 - name: No instance found to destroy
   ansible.builtin.debug:
     msg: "No GCP instance found with name '{{ service_label }}'"
