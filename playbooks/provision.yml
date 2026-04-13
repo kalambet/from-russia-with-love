@@ -43,20 +43,21 @@
         deploy_region: "{{ region if region != '' else provider_region }}"
         service_label: "{{ target_service }}-{{ provider }}"
 
+    - name: Ensure credentials output directory exists
+      ansible.builtin.file:
+        path: "{{ credentials_output_dir }}"
+        state: directory
+        mode: '0700'
+
     - name: Generate random Outline API port
       ansible.builtin.set_fact:
         outline_api_port: "{{ range(1024, 65536) | random }}"
       when: target_service == 'outline'
 
-    - name: Generate random Outline access port
+    - name: Generate random Outline access port (guaranteed different from API port)
       ansible.builtin.set_fact:
-        outline_access_port: "{{ range(1024, 65536) | random }}"
+        outline_access_port: "{{ (range(1024, 65536) | reject('equalto', outline_api_port | int) | list) | random }}"
       when: target_service == 'outline'
-
-    - name: Ensure Outline ports are different
-      ansible.builtin.set_fact:
-        outline_access_port: "{{ range(1024, 65536) | random }}"
-      when: target_service == 'outline' and outline_api_port | string == outline_access_port | string
 
     - name: Save Outline API port
       ansible.builtin.copy:
