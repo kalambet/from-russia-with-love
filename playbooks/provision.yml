@@ -49,15 +49,37 @@
         state: directory
         mode: '0700'
 
+    - name: Check for existing Outline API port file
+      ansible.builtin.stat:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_api_port.txt"
+      register: existing_api_port_file
+      when: target_service == 'outline'
+
+    - name: Check for existing Outline access port file
+      ansible.builtin.stat:
+        path: "{{ credentials_output_dir }}/{{ service_label }}_access_port.txt"
+      register: existing_access_port_file
+      when: target_service == 'outline'
+
+    - name: Load existing Outline API port
+      ansible.builtin.set_fact:
+        outline_api_port: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_api_port.txt') }}"
+      when: target_service == 'outline' and (existing_api_port_file.stat.exists | default(false))
+
+    - name: Load existing Outline access port
+      ansible.builtin.set_fact:
+        outline_access_port: "{{ lookup('file', credentials_output_dir + '/' + service_label + '_access_port.txt') }}"
+      when: target_service == 'outline' and (existing_access_port_file.stat.exists | default(false))
+
     - name: Generate random Outline API port
       ansible.builtin.set_fact:
         outline_api_port: "{{ range(1024, 65536) | random }}"
-      when: target_service == 'outline'
+      when: target_service == 'outline' and not (existing_api_port_file.stat.exists | default(false))
 
     - name: Generate random Outline access port (guaranteed different from API port)
       ansible.builtin.set_fact:
         outline_access_port: "{{ (range(1024, 65536) | reject('equalto', outline_api_port | int) | list) | random }}"
-      when: target_service == 'outline'
+      when: target_service == 'outline' and not (existing_access_port_file.stat.exists | default(false))
 
     - name: Save Outline API port
       ansible.builtin.copy:
